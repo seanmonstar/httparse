@@ -3,6 +3,8 @@
 name = "httparse"
 version = "0.0.1"
 authors = ["Sean McArthur <sean.monstar@gmail.com>"]
+license = "MIT"
+description = "A tiny, safe, speedy HTTP/1.x parser."
 
 [dev-dependencies]
 pico-sys = "*"
