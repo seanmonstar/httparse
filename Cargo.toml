@@ -1,0 +1,8 @@
+[package]
+
+name = "httparse"
+version = "0.0.1"
+authors = ["Sean McArthur <sean.monstar@gmail.com>"]
+
+[dev-dependencies]
+pico-sys = "*"
