@@ -1,4 +1,7 @@
+#![allow(unused_assignments)]
+
 use std::str;
+
 
 macro_rules! eof {
     ($buf:expr, $i:expr) => (
@@ -198,11 +201,12 @@ impl<'a> Response<'a> {
         parse!(self.reason = parse_token(buf));
         newline!(buf);
 
+        let len = orig_len - buf.len();
         let headers_len = match try!(parse_headers(self.headers, buf)) {
             Status::Complete(len) => len,
             Status::Partial => return Ok(Status::Partial)
         };
-        Ok(Status::Complete(orig_len - buf.len() - headers_len))
+        Ok(Status::Complete(len + headers_len))
     }
 }
 
@@ -275,6 +279,7 @@ fn parse_headers<'a>(headers: &mut [Header<'a>], buf: &'a [u8]) -> Result<Status
             return Ok(Status::Complete(i));
         }
 
+        last_i = i;
         // parse header name until colon
         loop {
             let b = next!(buf, i);
@@ -302,17 +307,18 @@ fn parse_headers<'a>(headers: &mut [Header<'a>], buf: &'a [u8]) -> Result<Status
         loop {
             let b = next!(buf, i);
             if !is_token!(b) {
-                if b == b'\r' {
-                    expect!(buf[i] == b'\n' => Err(Error::HeaderValue));
-                    header.value = &buf[last_i..i - 2];
-                    break;
-                } else if b == b'\n' {
-                    header.value = &buf[last_i..i - 1];
-                    break;
-                } else {
-                    return Err(Error::HeaderValue);
+                if (b < 0o40 && b != 0o11) || b == 0o177 {
+                    if b == b'\r' {
+                        expect!(buf[i] == b'\n' => Err(Error::HeaderValue));
+                        header.value = &buf[last_i..i - 2];
+                        break;
+                    } else if b == b'\n' {
+                        header.value = &buf[last_i..i - 1];
+                        break;
+                    } else {
+                        return Err(Error::HeaderValue);
+                    }
                 }
-                last_i = i;
             }
         }
     }
@@ -322,51 +328,95 @@ fn parse_headers<'a>(headers: &mut [Header<'a>], buf: &'a [u8]) -> Result<Status
 
 #[cfg(test)]
 mod tests {
-    use super::{Request, Response, Header};
+    use super::{Request, Response, Header, Status};
 
-    #[test]
-    fn test_request_complete() {
-        let mut headers = [Header{ name: "", value: &[] }; 16];
-        let mut req = Request::new(&mut headers[]);
-        let status = req.parse(b"GET / HTTP/1.1\r\n\r\n").unwrap();
-        assert!(status.is_complete());
-        assert_eq!(req.method.unwrap(), "GET");
-        assert_eq!(req.path.unwrap(), "/");
-        assert_eq!(req.version.unwrap(), 1);
-
-        let mut headers = [Header{ name: "", value: &[] }; 16];
-        let mut req = Request::new(&mut headers[]);
-        let status = req.parse(b"GET / HTTP/1.1\r\nHost: foo.com\r\n\r\n").unwrap();
-        assert!(status.is_complete());
-        assert_eq!(req.method.unwrap(), "GET");
-        assert_eq!(req.path.unwrap(), "/");
-        assert_eq!(req.version.unwrap(), 1);
-        assert_eq!(req.headers[0].name, "Host");
-        assert_eq!(req.headers[0].value, b"foo.com");
-
+    macro_rules! req {
+        ($name:ident, $buf:expr, $closure:expr) => (
+            req! {$name, $buf, Ok(Status::Complete($buf.len())), $closure }
+        );
+        ($name:ident, $buf:expr, $len:expr, $closure:expr) => (
+        #[test]
+        fn $name() {
+            let mut headers = [Header{ name: "", value: &[] }; 16];
+            let mut req = Request::new(&mut headers[..]);
+            let closure: Box<Fn(Request)> = Box::new($closure);
+            let status = req.parse(unsafe { ::std::mem::transmute($buf) });
+            assert_eq!(status, $len);
+            closure(req);
+        }
+        )
     }
 
-    #[test]
-    fn test_request_partial() {
-        let mut headers = [Header{ name: "", value: &[] }; 16];
-        let mut req = Request::new(&mut headers[]);
-        assert!(req.parse(b"GET").unwrap().is_partial());
-        assert!(req.method.is_none());
-
-        let mut headers = [Header{ name: "", value: &[] }; 16];
-        let mut req = Request::new(&mut headers);
-        assert!(req.parse(b"GET ").unwrap().is_partial());
-        assert_eq!(req.method.unwrap(), "GET");
-        assert!(req.path.is_none());
+    req! {
+        test_request_simple,
+        "GET / HTTP/1.1\r\n\r\n",
+        |req| {
+            assert_eq!(req.method.unwrap(), "GET");
+            assert_eq!(req.path.unwrap(), "/");
+            assert_eq!(req.version.unwrap(), 1);
+        }
     }
 
-    #[test]
-    fn test_response_complete() {
-        let mut headers = [Header{ name: "", value: &[] }; 16];
-        let mut res = Response::new(&mut headers[]);
-        assert!(res.parse(b"HTTP/1.1 200 OK\r\n\r\n").unwrap().is_complete());
-        assert_eq!(res.version.unwrap(), 1);
-        assert_eq!(res.code.unwrap(), 200);
-        assert_eq!(res.reason.unwrap(), "OK");
+    req! {
+        test_request_headers,
+        "GET / HTTP/1.1\r\nHost: foo.com\r\nCookie: \r\n\r\n",
+        |req| {
+            assert_eq!(req.method.unwrap(), "GET");
+            assert_eq!(req.path.unwrap(), "/");
+            assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers[0].name, "Host");
+            assert_eq!(req.headers[0].value, b"foo.com");
+            assert_eq!(req.headers[1].name, "Cookie");
+            assert_eq!(req.headers[1].value, b"");
+        }
+    }
+
+    req! {
+        test_request_multibyte,
+        b"GET / HTTP/1.1\r\nHost: foo.com\r\nUser-Agent: \xe3\x81\xb2\xe3/1.0\r\n\r\n",
+        |req| {
+            assert_eq!(req.method.unwrap(), "GET");
+            assert_eq!(req.path.unwrap(), "/");
+            assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers[0].name, "Host");
+            assert_eq!(req.headers[0].value, b"foo.com");
+            assert_eq!(req.headers[1].name, "User-Agent");
+            assert_eq!(req.headers[1].value, b"\xe3\x81\xb2\xe3/1.0");
+        }
+    }
+
+
+    req! {
+        test_request_partial,
+        "GET / HTTP/1.1\r\n\r", Ok(Status::Partial),
+        |_req| {}
+    }
+
+
+    macro_rules! res {
+        ($name:ident, $buf:expr, $closure:expr) => (
+            res! {$name, $buf, Ok(Status::Complete($buf.len())), $closure }
+        );
+        ($name:ident, $buf:expr, $len:expr, $closure:expr) => (
+        #[test]
+        fn $name() {
+            let mut headers = [Header{ name: "", value: &[] }; 16];
+            let mut res = Response::new(&mut headers[..]);
+            let closure: Box<Fn(Response)> = Box::new($closure);
+            let status = res.parse(unsafe { ::std::mem::transmute($buf.as_bytes()) });
+            assert_eq!(status, $len);
+            closure(res);
+        }
+        )
+    }
+
+    res! {
+        test_response_simple,
+        "HTTP/1.1 200 OK\r\n\r\n",
+        |res| {
+            assert_eq!(res.version.unwrap(), 1);
+            assert_eq!(res.code.unwrap(), 200);
+            assert_eq!(res.reason.unwrap(), "OK");
+        }
     }
 }
