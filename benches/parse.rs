@@ -1,8 +1,7 @@
-#![feature(test)]
+#![feature(core, test)]
 
 extern crate "pico-sys" as pico;
 extern crate httparse;
-extern crate libc;
 
 extern crate test;
 
@@ -50,7 +49,7 @@ fn bench_pico(b: &mut test::Bencher) {
     let path_pair = unsafe { slice_to_mut_pair(&mut path.0) };
     let mut minor_version = 0;
     let mut h = [Header(&[], &[]); 16];
-    let mut headers = Headers(&mut h);
+    let headers = Headers(&mut h);
     let prev_buf_len = 0;
 
     b.iter(|| {

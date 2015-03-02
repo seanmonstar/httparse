@@ -1,3 +1,4 @@
+#![feature(core)]
 #![allow(unused_assignments)]
 
 use std::str;
@@ -29,6 +30,22 @@ macro_rules! expect {
     }
 }
 
+macro_rules! slice {
+    ($buf:ident[$from:expr;]) => ({
+        slice!($buf[$from; $buf.len()])
+    });
+    ($buf:ident[$from:expr;$to:expr]) => {
+        unsafe {
+            use std::mem::transmute;
+            use std::raw::Slice;
+            transmute(Slice {
+                data: $buf.as_ptr().offset($from as isize),
+                len: $to - $from
+            })
+        }
+    }
+}
+
 /// Determines if byte is a token char.
 ///
 /// > ```notrust
@@ -40,16 +57,18 @@ macro_rules! expect {
 /// >                ; any VCHAR, except delimiters
 /// > ```
 macro_rules! is_token {
-    ($b:expr) => {
-        $b > 0x1F && $b < 0x7F
-    }
+    ($b:expr) => ({
+        let b = $b;
+        b > 0x1F && b < 0x7F
+    })
 }
 
 macro_rules! parse {
     ($obj:ident.$field:ident = parse_version ($buf:expr)) => ({
         $obj.$field = match try!(parse_version($buf)) {
             Status::Complete(val) => {
-                $buf = $buf.split_at(8).1;
+                let buf = $buf;
+                $buf = slice!(buf[8;]);
                 Some(val)
             },
             Status::Partial => return Ok(Status::Partial)
@@ -58,7 +77,8 @@ macro_rules! parse {
     ($obj:ident.$field:ident = parse_code ($buf:expr)) => ({
         $obj.$field = match try!(parse_code($buf)) {
             Status::Complete(val) => {
-                $buf = $buf.split_at(3).1;
+                let buf = $buf;
+                $buf = slice!(buf[3;]);
                 Some(val)
             },
             Status::Partial => return Ok(Status::Partial)
@@ -67,7 +87,8 @@ macro_rules! parse {
     ($obj:ident.$field:ident = $action:ident ($buf:expr)) => ({
         $obj.$field = match try!($action($buf)) {
             Status::Complete(val) => {
-                $buf = $buf.split_at(val.len()).1;
+                let buf = $buf;
+                $buf = slice!(buf[val.len();]);
                 Some(val)
             },
             Status::Partial => return Ok(Status::Partial)
@@ -82,10 +103,12 @@ macro_rules! newline {
         match next!($buf, i) {
             b'\r' => {
                 expect!($buf[i] == b'\n' => Ok(Status::Partial));
-                $buf = $buf.split_at(2).1;
+                let buf = $buf;
+                $buf = slice!(buf[2;]);
             },
             b'\n' => {
-                $buf = $buf.split_at(1).1;
+                let buf = $buf;
+                $buf = slice!(buf[1;]);
             },
             _ => return Err(Error::NewLine)
         }
@@ -157,9 +180,9 @@ impl<'a> Request<'a> {
     pub fn parse(&mut self, mut buf: &'a [u8]) -> Result<Status<usize>, Error> {
         let orig_len = buf.len();
         parse!(self.method = parse_token(buf));
-        buf = buf.split_at(1).1;
+        buf = slice!(buf[1;]);
         parse!(self.path = parse_token(buf));
-        buf = buf.split_at(1).1;
+        buf = slice!(buf[1;]);
         parse!(self.version = parse_version(buf));
         newline!(buf);
 
@@ -195,9 +218,9 @@ impl<'a> Response<'a> {
         let orig_len = buf.len();
 
         parse!(self.version = parse_version(buf));
-        buf = buf.split_at(1).1;
+        buf = slice!(buf[1;]);
         parse!(self.code = parse_code(buf));
-        buf = buf.split_at(1).1;
+        buf = slice!(buf[1;]);
         parse!(self.reason = parse_token(buf));
         newline!(buf);
 
@@ -263,10 +286,11 @@ fn parse_code(buf: &[u8]) -> Result<Status<u16>, Error> {
                         (ones - b'0') as u16))
 }
 
+#[inline]
 fn parse_headers<'a>(headers: &mut [Header<'a>], buf: &'a [u8]) -> Result<Status<usize>, Error> {
     let mut i: usize = 0;
     let mut last_i: usize = 0;
-    for header in headers {
+    'headers: for header in headers {
         // a newline here means the head is over!
         eof!(buf, i);
         let b = unsafe { *buf.get_unchecked(i) };
@@ -285,8 +309,8 @@ fn parse_headers<'a>(headers: &mut [Header<'a>], buf: &'a [u8]) -> Result<Status
             let b = next!(buf, i);
             if b == b':' {
                 header.name = unsafe {
-                    str::from_utf8_unchecked(&buf[last_i..i - 1])
-                }; //TODO: remove bounds checks
+                    str::from_utf8_unchecked(slice!(buf[last_i;i - 1]))
+                };
                 break;
             } else if !is_token!(b) {
                 return Err(Error::HeaderName);
@@ -304,16 +328,47 @@ fn parse_headers<'a>(headers: &mut [Header<'a>], buf: &'a [u8]) -> Result<Status
         }
 
         // parse value till EOL
+
+        macro_rules! check {
+            () => ({
+                let b = unsafe { *buf.get_unchecked(i) };
+                i += 1;
+                if !is_token!(b) {
+                    if (b < 0o40 && b != 0o11) || b == 0o177 {
+                        if b == b'\r' {
+                            expect!(buf[i] == b'\n' => Err(Error::HeaderValue));
+                            header.value = slice!(buf[last_i;i - 2]);
+                            continue 'headers;
+                        } else if b == b'\n' {
+                            header.value = slice!(buf[last_i;i - 1]);
+                            continue 'headers;
+                        } else {
+                            return Err(Error::HeaderValue);
+                        }
+                    }
+                }
+            })
+        }
+        while buf.len() - i >= 8 {
+            check!();
+            check!();
+            check!();
+            check!();
+            check!();
+            check!();
+            check!();
+            check!();
+        }
         loop {
             let b = next!(buf, i);
             if !is_token!(b) {
                 if (b < 0o40 && b != 0o11) || b == 0o177 {
                     if b == b'\r' {
                         expect!(buf[i] == b'\n' => Err(Error::HeaderValue));
-                        header.value = &buf[last_i..i - 2];
+                        header.value = slice!(buf[last_i;i - 2]);
                         break;
                     } else if b == b'\n' {
-                        header.value = &buf[last_i..i - 1];
+                        header.value = slice!(buf[last_i;i - 1]);
                         break;
                     } else {
                         return Err(Error::HeaderValue);
