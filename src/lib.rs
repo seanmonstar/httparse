@@ -447,6 +447,12 @@ mod tests {
         |_req| {}
     }
 
+    req! {
+        test_request_newlines,
+        "GET / HTTP/1.1\n\n",
+        |_| {}
+    }
+
 
     macro_rules! res {
         ($name:ident, $buf:expr, $closure:expr) => (
