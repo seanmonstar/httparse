@@ -46,6 +46,17 @@ macro_rules! slice {
     }
 }
 
+macro_rules! shrink {
+    ($slice:ident, $to:expr) => ({
+        unsafe {
+            use std::mem::transmute;
+            use std::raw::Slice;
+            let raw: &mut Slice<Header> = transmute($slice);
+            raw.len = $to;
+        }
+    })
+}
+
 /// Determines if byte is a token char.
 ///
 /// > ```notrust
@@ -187,7 +198,7 @@ impl<'a> Request<'a> {
         newline!(buf);
 
         let len = orig_len - buf.len();
-        let headers_len = match try!(parse_headers(self.headers, buf)) {
+        let headers_len = match try!(parse_headers(&mut self.headers, buf)) {
             Status::Complete(len) => len,
             Status::Partial => return Ok(Status::Partial)
         };
@@ -225,7 +236,7 @@ impl<'a> Response<'a> {
         newline!(buf);
 
         let len = orig_len - buf.len();
-        let headers_len = match try!(parse_headers(self.headers, buf)) {
+        let headers_len = match try!(parse_headers(&mut self.headers, buf)) {
             Status::Complete(len) => len,
             Status::Partial => return Ok(Status::Partial)
         };
@@ -287,22 +298,28 @@ fn parse_code(buf: &[u8]) -> Result<Status<u16>, Error> {
 }
 
 #[inline]
-fn parse_headers<'a>(headers: &mut [Header<'a>], buf: &'a [u8]) -> Result<Status<usize>, Error> {
+fn parse_headers<'a>(headers: &mut &mut [Header<'a>], buf: &'a [u8]) -> Result<Status<usize>, Error> {
     let mut i: usize = 0;
+    let mut num_headers: usize = 0;
     let mut last_i: usize = 0;
-    'headers: for header in headers {
+    let mut result = Err(Error::TooManyHeaders);
+
+    'headers: for header in headers.iter_mut() {
         // a newline here means the head is over!
         eof!(buf, i);
         let b = unsafe { *buf.get_unchecked(i) };
         if b == b'\r' {
             i += 1;
             expect!(buf[i] == b'\n' => Err(Error::NewLine));
-            return Ok(Status::Complete(i));
+            result = Ok(Status::Complete(i));
+            break 'headers;
         } else if b == b'\n' {
             i += 1;
-            return Ok(Status::Complete(i));
+            result = Ok(Status::Complete(i));
+            break 'headers;
         }
 
+        num_headers += 1;
         last_i = i;
         // parse header name until colon
         loop {
@@ -378,7 +395,9 @@ fn parse_headers<'a>(headers: &mut [Header<'a>], buf: &'a [u8]) -> Result<Status
         }
     }
 
-    Err(Error::TooManyHeaders)
+    shrink!(headers, num_headers);
+    result
+
 }
 
 #[cfg(test)]
@@ -409,6 +428,7 @@ mod tests {
             assert_eq!(req.method.unwrap(), "GET");
             assert_eq!(req.path.unwrap(), "/");
             assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers.len(), 0);
         }
     }
 
@@ -419,6 +439,7 @@ mod tests {
             assert_eq!(req.method.unwrap(), "GET");
             assert_eq!(req.path.unwrap(), "/");
             assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers.len(), 2);
             assert_eq!(req.headers[0].name, "Host");
             assert_eq!(req.headers[0].value, b"foo.com");
             assert_eq!(req.headers[1].name, "Cookie");
