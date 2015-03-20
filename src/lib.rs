@@ -51,7 +51,8 @@ macro_rules! shrink {
         unsafe {
             use std::mem::transmute;
             use std::raw::Slice;
-            let raw: &mut Slice<Header> = transmute($slice);
+            use $crate::Header;
+            let raw: &mut &mut Slice<Header> = transmute(&$slice);
             raw.len = $to;
         }
     })
@@ -250,6 +251,7 @@ pub struct Header<'a> {
     pub value: &'a [u8],
 }
 
+pub const EMPTY_HEADER: Header<'static> = Header { name: "", value: b"" };
 
 #[inline]
 fn parse_version(buf: &[u8]) -> Result<Status<u8>, Error> {
@@ -304,105 +306,128 @@ fn parse_headers<'a>(headers: &mut &mut [Header<'a>], buf: &'a [u8]) -> Result<S
     let mut last_i: usize = 0;
     let mut result = Err(Error::TooManyHeaders);
 
-    'headers: for header in headers.iter_mut() {
-        // a newline here means the head is over!
-        eof!(buf, i);
-        let b = unsafe { *buf.get_unchecked(i) };
-        if b == b'\r' {
-            i += 1;
-            expect!(buf[i] == b'\n' => Err(Error::NewLine));
-            result = Ok(Status::Complete(i));
-            break 'headers;
-        } else if b == b'\n' {
-            i += 1;
-            result = Ok(Status::Complete(i));
-            break 'headers;
-        }
+    {
+        let mut iter = headers.iter_mut();
 
-        num_headers += 1;
-        last_i = i;
-        // parse header name until colon
-        loop {
-            let b = next!(buf, i);
-            if b == b':' {
-                header.name = unsafe {
-                    str::from_utf8_unchecked(slice!(buf[last_i;i - 1]))
-                };
-                break;
-            } else if !is_token!(b) {
-                return Err(Error::HeaderName);
-            }
-        }
-
-        // eat white space between colon and value
-        loop {
-            let b = next!(buf, i);
-            if !(b == b' ' || b == b'\t') {
-                i -= 1;
-                last_i = i;
-                break;
-            }
-        }
-
-        // parse value till EOL
-
-        macro_rules! check {
-            () => ({
-                let b = unsafe { *buf.get_unchecked(i) };
+        'headers: loop {
+            // a newline here means the head is over!
+            eof!(buf, i);
+            let b = unsafe { *buf.get_unchecked(i) };
+            if b == b'\r' {
                 i += 1;
+                expect!(buf[i] == b'\n' => Err(Error::NewLine));
+                result = Ok(Status::Complete(i));
+                break;
+            } else if b == b'\n' {
+                i += 1;
+                result = Ok(Status::Complete(i));
+                break;
+            }
+
+            let header = match iter.next() {
+                Some(header) => header,
+                None => break 'headers
+            };
+
+            num_headers += 1;
+            last_i = i;
+            // parse header name until colon
+            loop {
+                let b = next!(buf, i);
+                if b == b':' {
+                    header.name = unsafe {
+                        str::from_utf8_unchecked(slice!(buf[last_i;i - 1]))
+                    };
+                    break;
+                } else if !is_token!(b) {
+                    println!("{:?} {:?}", b, b as char);
+                    return Err(Error::HeaderName);
+                }
+            }
+
+            // eat white space between colon and value
+            loop {
+                let b = next!(buf, i);
+                if !(b == b' ' || b == b'\t') {
+                    i -= 1;
+                    last_i = i;
+                    break;
+                }
+            }
+
+            // parse value till EOL
+
+            macro_rules! check {
+                () => ({
+                    let b = unsafe { *buf.get_unchecked(i) };
+                    i += 1;
+                    if !is_token!(b) {
+                        if (b < 0o40 && b != 0o11) || b == 0o177 {
+                            if b == b'\r' {
+                                expect!(buf[i] == b'\n' => Err(Error::HeaderValue));
+                                header.value = slice!(buf[last_i;i - 2]);
+                                continue 'headers;
+                            } else if b == b'\n' {
+                                header.value = slice!(buf[last_i;i - 1]);
+                                continue 'headers;
+                            } else {
+                                return Err(Error::HeaderValue);
+                            }
+                        }
+                    }
+                })
+            }
+            while buf.len() - i >= 8 {
+                check!();
+                check!();
+                check!();
+                check!();
+                check!();
+                check!();
+                check!();
+                check!();
+            }
+            loop {
+                let b = next!(buf, i);
                 if !is_token!(b) {
                     if (b < 0o40 && b != 0o11) || b == 0o177 {
                         if b == b'\r' {
                             expect!(buf[i] == b'\n' => Err(Error::HeaderValue));
                             header.value = slice!(buf[last_i;i - 2]);
-                            continue 'headers;
+                            break;
                         } else if b == b'\n' {
                             header.value = slice!(buf[last_i;i - 1]);
-                            continue 'headers;
+                            break;
                         } else {
                             return Err(Error::HeaderValue);
                         }
                     }
                 }
-            })
-        }
-        while buf.len() - i >= 8 {
-            check!();
-            check!();
-            check!();
-            check!();
-            check!();
-            check!();
-            check!();
-            check!();
-        }
-        loop {
-            let b = next!(buf, i);
-            if !is_token!(b) {
-                if (b < 0o40 && b != 0o11) || b == 0o177 {
-                    if b == b'\r' {
-                        expect!(buf[i] == b'\n' => Err(Error::HeaderValue));
-                        header.value = slice!(buf[last_i;i - 2]);
-                        break;
-                    } else if b == b'\n' {
-                        header.value = slice!(buf[last_i;i - 1]);
-                        break;
-                    } else {
-                        return Err(Error::HeaderValue);
-                    }
-                }
             }
         }
-    }
+    } // drop iter
 
     shrink!(headers, num_headers);
     result
-
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Request, Response, Header, Status};
+    use super::{Request, Response, Status, EMPTY_HEADER};
+
+    const NUM_OF_HEADERS: usize = 4;
+
+    #[test]
+    fn test_shrink() {
+        let mut arr = [EMPTY_HEADER; 16];
+        {
+            let slice = &mut &mut arr[..];
+            assert_eq!(slice.len(), 16);
+            shrink!(slice, 4);
+            assert_eq!(slice.len(), 4);
+        }
+        assert_eq!(arr.len(), 16);
+    }
 
     macro_rules! req {
         ($name:ident, $buf:expr, $closure:expr) => (
@@ -411,7 +436,7 @@ mod tests {
         ($name:ident, $buf:expr, $len:expr, $closure:expr) => (
         #[test]
         fn $name() {
-            let mut headers = [Header{ name: "", value: &[] }; 16];
+            let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
             let mut req = Request::new(&mut headers[..]);
             let closure: Box<Fn(Request)> = Box::new($closure);
             let status = req.parse(unsafe { ::std::mem::transmute($buf) });
@@ -444,6 +469,14 @@ mod tests {
             assert_eq!(req.headers[0].value, b"foo.com");
             assert_eq!(req.headers[1].name, "Cookie");
             assert_eq!(req.headers[1].value, b"");
+        }
+    }
+
+    req! {
+        test_request_headers_max,
+        "GET / HTTP/1.1\r\nA: A\r\nB: B\r\nC: C\r\nD: D\r\n\r\n",
+        |req| {
+            assert_eq!(req.headers.len(), NUM_OF_HEADERS);
         }
     }
 
@@ -482,7 +515,7 @@ mod tests {
         ($name:ident, $buf:expr, $len:expr, $closure:expr) => (
         #[test]
         fn $name() {
-            let mut headers = [Header{ name: "", value: &[] }; 16];
+            let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
             let mut res = Response::new(&mut headers[..]);
             let closure: Box<Fn(Response)> = Box::new($closure);
             let status = res.parse(unsafe { ::std::mem::transmute($buf.as_bytes()) });
