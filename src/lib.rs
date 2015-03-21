@@ -233,7 +233,7 @@ impl<'a> Response<'a> {
         buf = slice!(buf[1;]);
         parse!(self.code = parse_code(buf));
         buf = slice!(buf[1;]);
-        parse!(self.reason = parse_token(buf));
+        parse!(self.reason = parse_reason(buf));
         newline!(buf);
 
         let len = orig_len - buf.len();
@@ -268,6 +268,41 @@ fn parse_version(buf: &[u8]) -> Result<Status<u8>, Error> {
         b'0' => Ok(Status::Complete(0)),
         b'1' => Ok(Status::Complete(1)),
         _ => Err(Error::Version)
+    }
+}
+
+// From [RFC 7230](https://tools.ietf.org/html/rfc7230):
+//
+// > ```notrust
+// > reason-phrase  = *( HTAB / SP / VCHAR / obs-text )
+// > HTAB           = %x09        ; horizontal tab
+// > VCHAR          = %x21-7E     ; visible (printing) characters
+// > obs-text       = %x80-FF
+// > ```
+//
+// > A.2.  Changes from RFC 2616
+// >
+// > Non-US-ASCII content in header fields and the reason phrase
+// > has been obsoleted and made opaque (the TEXT rule was removed).
+//
+// Note that the following implementation deliberately rejects the obsoleted (non-US-ASCII) text range.
+//
+// The fully compliant parser should probably just return the reason-phrase as an opaque &[u8] data
+// and leave interpretation to user or specialized helpers (akin to .display() in std::path::Path)
+
+#[inline]
+fn parse_reason(buf: &[u8]) -> Result<Status<&str>, Error> {
+    let mut i: usize = 0;
+    loop {
+        let b = next!(buf, i);
+        if b == b'\r' || b == b'\n' {
+            return Ok(Status::Complete(unsafe {
+                // all bytes up till `i` must have been HTAB / SP / VCHAR
+                str::from_utf8_unchecked(&buf[..i - 1])
+            }));
+        } else if !((b >= 0x20 && b <= 0x7E) || b == b'\t') {
+            return Err(Error::Status);
+        }
     }
 }
 
@@ -533,5 +568,40 @@ mod tests {
             assert_eq!(res.code.unwrap(), 200);
             assert_eq!(res.reason.unwrap(), "OK");
         }
+    }
+
+    res! {
+        test_response_reason_missing,
+        "HTTP/1.1 200 \r\n\r\n",
+        |res| {
+            assert_eq!(res.version.unwrap(), 1);
+            assert_eq!(res.code.unwrap(), 200);
+            assert_eq!(res.reason.unwrap(), "");
+        }
+    }
+
+    res! {
+        test_response_reason_with_space_and_tab,
+        "HTTP/1.1 101 Switching Protocols\t\r\n\r\n",
+        |res| {
+            assert_eq!(res.version.unwrap(), 1);
+            assert_eq!(res.code.unwrap(), 101);
+            assert_eq!(res.reason.unwrap(), "Switching Protocols\t");
+        }
+    }
+
+    static RESPONSE_REASON_WITH_OBS_TEXT_BYTE: &'static [u8]  = b"HTTP/1.1 200 X\xFFZ\r\n\r\n";
+    res! {
+        test_response_reason_with_obsolete_text_byte,
+        ::std::str::from_utf8_unchecked(RESPONSE_REASON_WITH_OBS_TEXT_BYTE),
+        Err(::Error::Status),
+        |_res| {}
+    }
+
+    res! {
+        test_response_reason_with_nul_byte,
+        "HTTP/1.1 200 \x00\r\n\r\n",
+        Err(::Error::Status),
+        |_res| {}
     }
 }
