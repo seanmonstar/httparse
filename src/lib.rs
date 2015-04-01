@@ -1,5 +1,5 @@
-#![feature(core)]
 #![cfg_attr(test, feature(convert))]
+#![feature(core)]
 #![allow(unused_assignments)]
 
 use std::str;
@@ -371,8 +371,9 @@ fn parse_headers<'a>(headers: &mut &mut [Header<'a>], buf: &'a [u8]) -> Result<S
             loop {
                 let b = next!(buf, i);
                 if b == b':' {
+                    let subslice = slice!(buf[last_i; i - 1]);
                     header.name = unsafe {
-                        str::from_utf8_unchecked(slice!(buf[last_i;i - 1]))
+                        str::from_utf8_unchecked(subslice)
                     };
                     break;
                 } else if !is_token!(b) {
