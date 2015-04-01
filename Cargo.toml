@@ -5,6 +5,7 @@ version = "0.0.6"
 authors = ["Sean McArthur <sean.monstar@gmail.com>"]
 license = "MIT"
 description = "A tiny, safe, speedy HTTP/1.x parser."
+repository = "https://github.com/seanmonstar/httparse"
 
 [dev-dependencies]
 pico-sys = "*"
