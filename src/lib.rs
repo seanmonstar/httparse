@@ -1,4 +1,4 @@
-#![feature(core)]
+#![feature(core, convert)]
 #![allow(unused_assignments)]
 
 use std::str;
@@ -474,7 +474,7 @@ mod tests {
             let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
             let mut req = Request::new(&mut headers[..]);
             let closure: Box<Fn(Request)> = Box::new($closure);
-            let status = req.parse(unsafe { ::std::mem::transmute($buf) });
+            let status = req.parse($buf.as_ref());
             assert_eq!(status, $len);
             closure(req);
         }
@@ -483,7 +483,7 @@ mod tests {
 
     req! {
         test_request_simple,
-        "GET / HTTP/1.1\r\n\r\n",
+        b"GET / HTTP/1.1\r\n\r\n",
         |req| {
             assert_eq!(req.method.unwrap(), "GET");
             assert_eq!(req.path.unwrap(), "/");
@@ -494,7 +494,7 @@ mod tests {
 
     req! {
         test_request_headers,
-        "GET / HTTP/1.1\r\nHost: foo.com\r\nCookie: \r\n\r\n",
+        b"GET / HTTP/1.1\r\nHost: foo.com\r\nCookie: \r\n\r\n",
         |req| {
             assert_eq!(req.method.unwrap(), "GET");
             assert_eq!(req.path.unwrap(), "/");
@@ -509,7 +509,7 @@ mod tests {
 
     req! {
         test_request_headers_max,
-        "GET / HTTP/1.1\r\nA: A\r\nB: B\r\nC: C\r\nD: D\r\n\r\n",
+        b"GET / HTTP/1.1\r\nA: A\r\nB: B\r\nC: C\r\nD: D\r\n\r\n",
         |req| {
             assert_eq!(req.headers.len(), NUM_OF_HEADERS);
         }
@@ -532,13 +532,13 @@ mod tests {
 
     req! {
         test_request_partial,
-        "GET / HTTP/1.1\r\n\r", Ok(Status::Partial),
+        b"GET / HTTP/1.1\r\n\r", Ok(Status::Partial),
         |_req| {}
     }
 
     req! {
         test_request_newlines,
-        "GET / HTTP/1.1\n\n",
+        b"GET / HTTP/1.1\n\n",
         |_| {}
     }
 
@@ -553,7 +553,7 @@ mod tests {
             let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
             let mut res = Response::new(&mut headers[..]);
             let closure: Box<Fn(Response)> = Box::new($closure);
-            let status = res.parse(unsafe { ::std::mem::transmute($buf.as_bytes()) });
+            let status = res.parse($buf.as_ref());
             assert_eq!(status, $len);
             closure(res);
         }
@@ -562,7 +562,7 @@ mod tests {
 
     res! {
         test_response_simple,
-        "HTTP/1.1 200 OK\r\n\r\n",
+        b"HTTP/1.1 200 OK\r\n\r\n",
         |res| {
             assert_eq!(res.version.unwrap(), 1);
             assert_eq!(res.code.unwrap(), 200);
@@ -572,7 +572,7 @@ mod tests {
 
     res! {
         test_response_reason_missing,
-        "HTTP/1.1 200 \r\n\r\n",
+        b"HTTP/1.1 200 \r\n\r\n",
         |res| {
             assert_eq!(res.version.unwrap(), 1);
             assert_eq!(res.code.unwrap(), 200);
@@ -582,7 +582,7 @@ mod tests {
 
     res! {
         test_response_reason_with_space_and_tab,
-        "HTTP/1.1 101 Switching Protocols\t\r\n\r\n",
+        b"HTTP/1.1 101 Switching Protocols\t\r\n\r\n",
         |res| {
             assert_eq!(res.version.unwrap(), 1);
             assert_eq!(res.code.unwrap(), 101);
@@ -590,17 +590,17 @@ mod tests {
         }
     }
 
-    static RESPONSE_REASON_WITH_OBS_TEXT_BYTE: &'static [u8]  = b"HTTP/1.1 200 X\xFFZ\r\n\r\n";
+    static RESPONSE_REASON_WITH_OBS_TEXT_BYTE: &'static [u8] = b"HTTP/1.1 200 X\xFFZ\r\n\r\n";
     res! {
         test_response_reason_with_obsolete_text_byte,
-        ::std::str::from_utf8_unchecked(RESPONSE_REASON_WITH_OBS_TEXT_BYTE),
+        RESPONSE_REASON_WITH_OBS_TEXT_BYTE,
         Err(::Error::Status),
         |_res| {}
     }
 
     res! {
         test_response_reason_with_nul_byte,
-        "HTTP/1.1 200 \x00\r\n\r\n",
+        b"HTTP/1.1 200 \x00\r\n\r\n",
         Err(::Error::Status),
         |_res| {}
     }

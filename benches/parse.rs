@@ -1,6 +1,6 @@
 #![feature(core, test)]
 
-extern crate "pico-sys" as pico;
+extern crate pico_sys as pico;
 extern crate httparse;
 
 extern crate test;
