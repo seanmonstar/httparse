@@ -1,4 +1,5 @@
-#![feature(core, convert)]
+#![feature(core)]
+#![cfg_attr(test, feature(convert))]
 #![allow(unused_assignments)]
 
 use std::str;
