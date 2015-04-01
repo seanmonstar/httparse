@@ -2,8 +2,7 @@
 #![feature(core)]
 #![allow(unused_assignments)]
 
-use std::str;
-
+use std::{str, mem, raw};
 
 macro_rules! eof {
     ($buf:expr, $i:expr) => (
@@ -12,6 +11,7 @@ macro_rules! eof {
         }
     )
 }
+
 macro_rules! next {
     ($buf:expr, $i:ident) => ({
         let buf = $buf;
@@ -31,32 +31,18 @@ macro_rules! expect {
     }
 }
 
-macro_rules! slice {
-    ($buf:ident[$from:expr;]) => ({
-        slice!($buf[$from; $buf.len()])
-    });
-    ($buf:ident[$from:expr;$to:expr]) => {
-        unsafe {
-            use std::mem::transmute;
-            use std::raw::Slice;
-            transmute(Slice {
-                data: $buf.as_ptr().offset($from as isize),
-                len: $to - $from
-            })
-        }
-    }
+#[inline(always)]
+unsafe fn slice<T>(buf: &[T], start: usize, end: usize) -> &[T] {
+    mem::transmute(raw::Slice {
+        data: buf.as_ptr().offset(start as isize),
+        len: end - start
+    })
 }
 
-macro_rules! shrink {
-    ($slice:ident, $to:expr) => ({
-        unsafe {
-            use std::mem::transmute;
-            use std::raw::Slice;
-            use $crate::Header;
-            let raw: &mut &mut Slice<Header> = transmute(&$slice);
-            raw.len = $to;
-        }
-    })
+#[inline]
+fn shrink<T>(slice: &mut &mut [T], len: usize) {
+    let raw: &mut raw::Slice<Header> = unsafe { mem::transmute(slice) };
+    raw.len = len;
 }
 
 /// Determines if byte is a token char.
@@ -69,19 +55,16 @@ macro_rules! shrink {
 /// >                / DIGIT / ALPHA
 /// >                ; any VCHAR, except delimiters
 /// > ```
-macro_rules! is_token {
-    ($b:expr) => ({
-        let b = $b;
-        b > 0x1F && b < 0x7F
-    })
+#[inline]
+fn is_token(b: u8) -> bool {
+    b > 0x1F && b < 0x7F
 }
 
 macro_rules! parse {
     ($obj:ident.$field:ident = parse_version ($buf:expr)) => ({
         $obj.$field = match try!(parse_version($buf)) {
             Status::Complete(val) => {
-                let buf = $buf;
-                $buf = slice!(buf[8;]);
+                $buf = unsafe { slice($buf, 8, $buf.len()) };
                 Some(val)
             },
             Status::Partial => return Ok(Status::Partial)
@@ -90,8 +73,7 @@ macro_rules! parse {
     ($obj:ident.$field:ident = parse_code ($buf:expr)) => ({
         $obj.$field = match try!(parse_code($buf)) {
             Status::Complete(val) => {
-                let buf = $buf;
-                $buf = slice!(buf[3;]);
+                $buf = unsafe { slice($buf, 3, $buf.len()) };
                 Some(val)
             },
             Status::Partial => return Ok(Status::Partial)
@@ -100,8 +82,7 @@ macro_rules! parse {
     ($obj:ident.$field:ident = $action:ident ($buf:expr)) => ({
         $obj.$field = match try!($action($buf)) {
             Status::Complete(val) => {
-                let buf = $buf;
-                $buf = slice!(buf[val.len();]);
+                $buf = unsafe { slice($buf, val.len(), $buf.len()) };
                 Some(val)
             },
             Status::Partial => return Ok(Status::Partial)
@@ -116,12 +97,10 @@ macro_rules! newline {
         match next!($buf, i) {
             b'\r' => {
                 expect!($buf[i] == b'\n' => Ok(Status::Partial));
-                let buf = $buf;
-                $buf = slice!(buf[2;]);
+                $buf = unsafe { slice($buf, 2, $buf.len()) };
             },
             b'\n' => {
-                let buf = $buf;
-                $buf = slice!(buf[1;]);
+                $buf = unsafe { slice($buf, 1, $buf.len()) };
             },
             _ => return Err(Error::NewLine)
         }
@@ -129,7 +108,7 @@ macro_rules! newline {
 }
 
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Error {
     HeaderName,
     HeaderValue,
@@ -193,9 +172,9 @@ impl<'a> Request<'a> {
     pub fn parse(&mut self, mut buf: &'a [u8]) -> Result<Status<usize>, Error> {
         let orig_len = buf.len();
         parse!(self.method = parse_token(buf));
-        buf = slice!(buf[1;]);
+        buf = unsafe { slice(buf, 1, buf.len()) };
         parse!(self.path = parse_token(buf));
-        buf = slice!(buf[1;]);
+        buf = unsafe { slice(buf, 1, buf.len()) };
         parse!(self.version = parse_version(buf));
         newline!(buf);
 
@@ -231,9 +210,9 @@ impl<'a> Response<'a> {
         let orig_len = buf.len();
 
         parse!(self.version = parse_version(buf));
-        buf = slice!(buf[1;]);
+        buf = unsafe { slice(buf, 1, buf.len()) };
         parse!(self.code = parse_code(buf));
-        buf = slice!(buf[1;]);
+        buf = unsafe { slice(buf, 1, buf.len()) };
         parse!(self.reason = parse_reason(buf));
         newline!(buf);
 
@@ -317,7 +296,7 @@ fn parse_token(buf: &[u8]) -> Result<Status<&str>, Error> {
                 // all bytes up till `i` must have been `is_token`.
                 str::from_utf8_unchecked(&buf[..i - 1])
             }));
-        } else if !is_token!(b) {
+        } else if !is_token(b) {
             return Err(Error::Token);
         }
     }
@@ -371,12 +350,11 @@ fn parse_headers<'a>(headers: &mut &mut [Header<'a>], buf: &'a [u8]) -> Result<S
             loop {
                 let b = next!(buf, i);
                 if b == b':' {
-                    let subslice = slice!(buf[last_i; i - 1]);
                     header.name = unsafe {
-                        str::from_utf8_unchecked(subslice)
+                        str::from_utf8_unchecked(slice(buf, last_i, i - 1))
                     };
                     break;
-                } else if !is_token!(b) {
+                } else if !is_token(b) {
                     println!("{:?} {:?}", b, b as char);
                     return Err(Error::HeaderName);
                 }
@@ -398,14 +376,14 @@ fn parse_headers<'a>(headers: &mut &mut [Header<'a>], buf: &'a [u8]) -> Result<S
                 () => ({
                     let b = unsafe { *buf.get_unchecked(i) };
                     i += 1;
-                    if !is_token!(b) {
+                    if !is_token(b) {
                         if (b < 0o40 && b != 0o11) || b == 0o177 {
                             if b == b'\r' {
                                 expect!(buf[i] == b'\n' => Err(Error::HeaderValue));
-                                header.value = slice!(buf[last_i;i - 2]);
+                                header.value = unsafe { slice(buf, last_i, i - 2) };
                                 continue 'headers;
                             } else if b == b'\n' {
-                                header.value = slice!(buf[last_i;i - 1]);
+                                header.value = unsafe { slice(buf, last_i, i - 1) };
                                 continue 'headers;
                             } else {
                                 return Err(Error::HeaderValue);
@@ -426,14 +404,14 @@ fn parse_headers<'a>(headers: &mut &mut [Header<'a>], buf: &'a [u8]) -> Result<S
             }
             loop {
                 let b = next!(buf, i);
-                if !is_token!(b) {
+                if !is_token(b) {
                     if (b < 0o40 && b != 0o11) || b == 0o177 {
                         if b == b'\r' {
                             expect!(buf[i] == b'\n' => Err(Error::HeaderValue));
-                            header.value = slice!(buf[last_i;i - 2]);
+                            header.value = unsafe { slice(buf, last_i, i - 2) };
                             break;
                         } else if b == b'\n' {
-                            header.value = slice!(buf[last_i;i - 1]);
+                            header.value = unsafe { slice(buf, last_i, i - 1) };
                             break;
                         } else {
                             return Err(Error::HeaderValue);
@@ -444,13 +422,13 @@ fn parse_headers<'a>(headers: &mut &mut [Header<'a>], buf: &'a [u8]) -> Result<S
         }
     } // drop iter
 
-    shrink!(headers, num_headers);
+    shrink(headers, num_headers);
     result
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Request, Response, Status, EMPTY_HEADER};
+    use super::{Request, Response, Status, EMPTY_HEADER, shrink};
 
     const NUM_OF_HEADERS: usize = 4;
 
@@ -460,7 +438,7 @@ mod tests {
         {
             let slice = &mut &mut arr[..];
             assert_eq!(slice.len(), 16);
-            shrink!(slice, 4);
+            shrink(slice, 4);
             assert_eq!(slice.len(), 4);
         }
         assert_eq!(arr.len(), 16);
