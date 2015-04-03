@@ -1,8 +1,6 @@
-#![cfg_attr(test, feature(convert))]
-#![feature(core)]
 #![allow(unused_assignments)]
 
-use std::{str, mem, raw};
+use std::{str, slice};
 
 macro_rules! eof {
     ($buf:expr, $i:expr) => (
@@ -33,16 +31,13 @@ macro_rules! expect {
 
 #[inline(always)]
 unsafe fn slice<T>(buf: &[T], start: usize, end: usize) -> &[T] {
-    mem::transmute(raw::Slice {
-        data: buf.as_ptr().offset(start as isize),
-        len: end - start
-    })
+    slice::from_raw_parts(buf.as_ptr().offset(start as isize), end - start)
 }
 
 #[inline]
 fn shrink<T>(slice: &mut &mut [T], len: usize) {
-    let raw: &mut raw::Slice<Header> = unsafe { mem::transmute(slice) };
-    raw.len = len;
+    let ptr = slice.as_mut_ptr();
+    *slice = unsafe { slice::from_raw_parts_mut(ptr, len) };
 }
 
 /// Determines if byte is a token char.
