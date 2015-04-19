@@ -146,16 +146,16 @@ impl<T> Status<T> {
     }
 }
 
-pub struct Request<'a> {
-    pub method: Option<&'a str>,
-    pub path: Option<&'a str>,
+pub struct Request<'headers, 'buf: 'headers> {
+    pub method: Option<&'buf str>,
+    pub path: Option<&'buf str>,
     pub version: Option<u8>,
-    pub headers: &'a mut [Header<'a>]
+    pub headers: &'headers mut [Header<'buf>]
 }
 
-impl<'a> Request<'a> {
+impl<'h, 'b> Request<'h, 'b> {
     #[inline]
-    pub fn new(headers: &'a mut [Header<'a>]) -> Request<'a> {
+    pub fn new(headers: &'h mut [Header<'b>]) -> Request<'h, 'b> {
         Request {
             method: None,
             path: None,
@@ -164,7 +164,7 @@ impl<'a> Request<'a> {
         }
     }
 
-    pub fn parse(&mut self, mut buf: &'a [u8]) -> Result<Status<usize>, Error> {
+    pub fn parse(&mut self, mut buf: &'b [u8]) -> Result<Status<usize>, Error> {
         let orig_len = buf.len();
         parse!(self.method = parse_token(buf));
         buf = unsafe { slice(buf, 1, buf.len()) };
@@ -183,16 +183,16 @@ impl<'a> Request<'a> {
     }
 }
 
-pub struct Response<'a> {
+pub struct Response<'headers, 'buf: 'headers> {
     pub version: Option<u8>,
     pub code: Option<u16>,
-    pub reason: Option<&'a str>,
-    pub headers: &'a mut [Header<'a>]
+    pub reason: Option<&'buf str>,
+    pub headers: &'headers mut [Header<'buf>]
 }
 
-impl<'a> Response<'a> {
+impl<'h, 'b> Response<'h, 'b> {
     #[inline]
-    pub fn new(headers: &'a mut [Header<'a>]) -> Response<'a> {
+    pub fn new(headers: &'h mut [Header<'b>]) -> Response<'h, 'b> {
         Response {
             version: None,
             code: None,
@@ -201,7 +201,7 @@ impl<'a> Response<'a> {
         }
     }
 
-    pub fn parse(&mut self, mut buf: &'a [u8]) -> Result<Status<usize>, Error> {
+    pub fn parse(&mut self, mut buf: &'b [u8]) -> Result<Status<usize>, Error> {
         let orig_len = buf.len();
 
         parse!(self.version = parse_version(buf));
