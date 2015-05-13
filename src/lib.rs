@@ -85,13 +85,20 @@ macro_rules! parse {
     })
 }
 
+macro_rules! space {
+    ($buf:ident or $err:expr) => ({
+        let mut i = 0;
+        expect!($buf[i] == b' ' => Err($err));
+        $buf = unsafe { slice($buf, 1, $buf.len()) };
+    })
+}
+
 macro_rules! newline {
     ($buf:ident) => ({
         let mut i = 0;
-        eof!($buf, i);
         match next!($buf, i) {
             b'\r' => {
-                expect!($buf[i] == b'\n' => Ok(Status::Partial));
+                expect!($buf[i] == b'\n' => Err(Error::NewLine));
                 $buf = unsafe { slice($buf, 2, $buf.len()) };
             },
             b'\n' => {
@@ -101,7 +108,6 @@ macro_rules! newline {
         }
     })
 }
-
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Error {
@@ -205,9 +211,9 @@ impl<'h, 'b> Response<'h, 'b> {
         let orig_len = buf.len();
 
         parse!(self.version = parse_version(buf));
-        buf = unsafe { slice(buf, 1, buf.len()) };
+        space!(buf or Error::Version);
         parse!(self.code = parse_code(buf));
-        buf = unsafe { slice(buf, 1, buf.len()) };
+        space!(buf or Error::Status);
         parse!(self.reason = parse_reason(buf));
         newline!(buf);
 
@@ -239,11 +245,13 @@ fn parse_version(buf: &[u8]) -> Result<Status<u8>, Error> {
     expect!(buf[i] == b'/' => Err(Error::Version));
     expect!(buf[i] == b'1' => Err(Error::Version));
     expect!(buf[i] == b'.' => Err(Error::Version));
-    match next!(buf, i) {
-        b'0' => Ok(Status::Complete(0)),
-        b'1' => Ok(Status::Complete(1)),
-        _ => Err(Error::Version)
-    }
+    let v = match next!(buf, i) {
+        b'0' => 0,
+        b'1' => 1,
+        _ => return Err(Error::Version)
+    };
+    //expect!(buf[i] == (b' ' | b'\r' | b'\n') => Err(Error::Version));
+    Ok(Status::Complete(v))
 }
 
 // From [RFC 7230](https://tools.ietf.org/html/rfc7230):
@@ -577,6 +585,20 @@ mod tests {
         test_response_reason_with_nul_byte,
         b"HTTP/1.1 200 \x00\r\n\r\n",
         Err(::Error::Status),
+        |_res| {}
+    }
+
+    res! {
+        test_response_version_missing_space,
+        b"HTTP/1.1",
+        Ok(Status::Partial),
+        |_res| {}
+    }
+
+    res! {
+        test_response_code_missing_space,
+        b"HTTP/1.1 200",
+        Ok(Status::Partial),
         |_res| {}
     }
 }
