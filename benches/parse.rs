@@ -30,23 +30,14 @@ fn bench_pico(b: &mut test::Bencher) {
     }
 
     #[repr(C)]
-    #[derive(Copy)]
+    #[derive(Clone, Copy)]
     struct Header<'a>(&'a [u8], &'a [u8]);
 
-    #[repr(C)]
-    #[derive(Copy)]
-    struct Method<'a>(&'a [u8]);
-
-    #[repr(C)]
-    #[derive(Copy)]
-    struct Path<'a>(&'a [u8]);
 
     #[repr(C)]
     struct Headers<'a>(&'a mut [Header<'a>]);
-    let mut method = Method(&[]);
-    let method_pair = unsafe { slice_to_mut_pair(&mut method.0) };
-    let mut path = Path(&[]);
-    let path_pair = unsafe { slice_to_mut_pair(&mut path.0) };
+    let method = [0i8; 16];
+    let path = [0i8; 16];
     let mut minor_version = 0;
     let mut h = [Header(&[], &[]); 16];
     let headers = Headers(&mut h);
@@ -57,10 +48,10 @@ fn bench_pico(b: &mut test::Bencher) {
             pico::ffi::phr_parse_request(
                 REQ.as_ptr() as *const _,
                 REQ.len() as u64,
-                method_pair.0 as *mut *const u8 as *mut *const _,
-                method_pair.1 as *mut usize as *mut _,
-                path_pair.0 as *mut *const u8 as *mut *const _,
-                path_pair.1 as *mut usize as *mut _,
+                &mut method.as_ptr(),
+                &mut 16,
+                &mut path.as_ptr(),
+                &mut 16,
                 &mut minor_version,
                 mem::transmute::<*mut Header, *mut pico::ffi::phr_header>(headers.0.as_mut_ptr()),
                 slice_to_mut_pair(&mut &*headers.0).1 as *mut usize as *mut _,

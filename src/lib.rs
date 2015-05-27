@@ -1,41 +1,39 @@
-#![allow(unused_assignments)]
 
 use std::{str, slice};
+use iter::Bytes;
 
-macro_rules! eof {
-    ($buf:expr, $i:expr) => (
-        if $buf.len() == $i {
-            return Ok(Status::Partial);
-        }
-    )
-}
+mod iter;
 
 macro_rules! next {
-    ($buf:expr, $i:ident) => ({
-        let buf = $buf;
-        eof!(buf, $i);
-        let ret = unsafe { *$buf.get_unchecked($i) };
-        $i += 1;
-        ret
+    ($bytes:ident) => ({
+        match $bytes.next() {
+            Some(b) => b,
+            None => return Ok(Status::Partial)
+        }
     })
 }
 
 macro_rules! expect {
-    ($buf:ident[$i:ident] == $pat:pat => $ret:expr) => {
-        match next!($buf, $i) {
+    ($bytes:ident.next() == $pat:pat => $ret:expr) => {
+        match next!($bytes) {
             v@$pat => v,
             _ => return $ret
         }
     }
 }
 
-#[inline(always)]
-unsafe fn slice<T>(buf: &[T], start: usize, end: usize) -> &[T] {
-    slice::from_raw_parts(buf.as_ptr().offset(start as isize), end - start)
+macro_rules! complete {
+    ($e:expr) => {
+        match try!($e) {
+            Status::Complete(v) => v,
+            Status::Partial => return Ok(Status::Partial)
+        }
+    }
 }
 
 #[inline]
 fn shrink<T>(slice: &mut &mut [T], len: usize) {
+    debug_assert!(slice.len() >= len);
     let ptr = slice.as_mut_ptr();
     *slice = unsafe { slice::from_raw_parts_mut(ptr, len) };
 }
@@ -55,54 +53,22 @@ fn is_token(b: u8) -> bool {
     b > 0x1F && b < 0x7F
 }
 
-macro_rules! parse {
-    ($obj:ident.$field:ident = parse_version ($buf:expr)) => ({
-        $obj.$field = match try!(parse_version($buf)) {
-            Status::Complete(val) => {
-                $buf = unsafe { slice($buf, 8, $buf.len()) };
-                Some(val)
-            },
-            Status::Partial => return Ok(Status::Partial)
-        }
-    });
-    ($obj:ident.$field:ident = parse_code ($buf:expr)) => ({
-        $obj.$field = match try!(parse_code($buf)) {
-            Status::Complete(val) => {
-                $buf = unsafe { slice($buf, 3, $buf.len()) };
-                Some(val)
-            },
-            Status::Partial => return Ok(Status::Partial)
-        }
-    });
-    ($obj:ident.$field:ident = $action:ident ($buf:expr)) => ({
-        $obj.$field = match try!($action($buf)) {
-            Status::Complete(val) => {
-                $buf = unsafe { slice($buf, val.len(), $buf.len()) };
-                Some(val)
-            },
-            Status::Partial => return Ok(Status::Partial)
-        }
-    })
-}
-
 macro_rules! space {
-    ($buf:ident or $err:expr) => ({
-        let mut i = 0;
-        expect!($buf[i] == b' ' => Err($err));
-        $buf = unsafe { slice($buf, 1, $buf.len()) };
+    ($bytes:ident or $err:expr) => ({
+        expect!($bytes.next() == b' ' => Err($err));
+        $bytes.slice();
     })
 }
 
 macro_rules! newline {
-    ($buf:ident) => ({
-        let mut i = 0;
-        match next!($buf, i) {
+    ($bytes:ident) => ({
+        match next!($bytes) {
             b'\r' => {
-                expect!($buf[i] == b'\n' => Err(Error::NewLine));
-                $buf = unsafe { slice($buf, 2, $buf.len()) };
+                expect!($bytes.next() == b'\n' => Err(Error::NewLine));
+                $bytes.slice();
             },
             b'\n' => {
-                $buf = unsafe { slice($buf, 1, $buf.len()) };
+                $bytes.slice();
             },
             _ => return Err(Error::NewLine)
         }
@@ -170,20 +136,16 @@ impl<'h, 'b> Request<'h, 'b> {
         }
     }
 
-    pub fn parse(&mut self, mut buf: &'b [u8]) -> Result<Status<usize>, Error> {
+    pub fn parse(&mut self, buf: &'b [u8]) -> Result<Status<usize>, Error> {
         let orig_len = buf.len();
-        parse!(self.method = parse_token(buf));
-        buf = unsafe { slice(buf, 1, buf.len()) };
-        parse!(self.path = parse_token(buf));
-        buf = unsafe { slice(buf, 1, buf.len()) };
-        parse!(self.version = parse_version(buf));
-        newline!(buf);
+        let mut bytes = Bytes::new(buf);
+        self.method = Some(complete!(parse_token(&mut bytes)));
+        self.path = Some(complete!(parse_token(&mut bytes)));
+        self.version = Some(complete!(parse_version(&mut bytes)));
+        newline!(bytes);
 
-        let len = orig_len - buf.len();
-        let headers_len = match try!(parse_headers(&mut self.headers, buf)) {
-            Status::Complete(len) => len,
-            Status::Partial => return Ok(Status::Partial)
-        };
+        let len = orig_len - bytes.len();
+        let headers_len = complete!(parse_headers(&mut self.headers, &mut bytes));
 
         Ok(Status::Complete(len + headers_len))
     }
@@ -207,21 +169,19 @@ impl<'h, 'b> Response<'h, 'b> {
         }
     }
 
-    pub fn parse(&mut self, mut buf: &'b [u8]) -> Result<Status<usize>, Error> {
+    pub fn parse(&mut self, buf: &'b [u8]) -> Result<Status<usize>, Error> {
         let orig_len = buf.len();
+        let mut bytes = Bytes::new(buf);
 
-        parse!(self.version = parse_version(buf));
-        space!(buf or Error::Version);
-        parse!(self.code = parse_code(buf));
-        space!(buf or Error::Status);
-        parse!(self.reason = parse_reason(buf));
-        newline!(buf);
+        self.version = Some(complete!(parse_version(&mut bytes)));
+        space!(bytes or Error::Version);
+        self.code = Some(complete!(parse_code(&mut bytes)));
+        space!(bytes or Error::Status);
+        self.reason = Some(complete!(parse_reason(&mut bytes)));
+        newline!(bytes);
 
-        let len = orig_len - buf.len();
-        let headers_len = match try!(parse_headers(&mut self.headers, buf)) {
-            Status::Complete(len) => len,
-            Status::Partial => return Ok(Status::Partial)
-        };
+        let len = orig_len - bytes.len();
+        let headers_len = complete!(parse_headers(&mut self.headers, &mut bytes));
         Ok(Status::Complete(len + headers_len))
     }
 }
@@ -235,17 +195,15 @@ pub struct Header<'a> {
 pub const EMPTY_HEADER: Header<'static> = Header { name: "", value: b"" };
 
 #[inline]
-fn parse_version(buf: &[u8]) -> Result<Status<u8>, Error> {
-    let mut i = 0;
-
-    expect!(buf[i] == b'H' => Err(Error::Version));
-    expect!(buf[i] == b'T' => Err(Error::Version));
-    expect!(buf[i] == b'T' => Err(Error::Version));
-    expect!(buf[i] == b'P' => Err(Error::Version));
-    expect!(buf[i] == b'/' => Err(Error::Version));
-    expect!(buf[i] == b'1' => Err(Error::Version));
-    expect!(buf[i] == b'.' => Err(Error::Version));
-    let v = match next!(buf, i) {
+fn parse_version(bytes: &mut Bytes) -> Result<Status<u8>, Error> {
+    expect!(bytes.next() == b'H' => Err(Error::Version));
+    expect!(bytes.next() == b'T' => Err(Error::Version));
+    expect!(bytes.next() == b'T' => Err(Error::Version));
+    expect!(bytes.next() == b'P' => Err(Error::Version));
+    expect!(bytes.next() == b'/' => Err(Error::Version));
+    expect!(bytes.next() == b'1' => Err(Error::Version));
+    expect!(bytes.next() == b'.' => Err(Error::Version));
+    let v = match next!(bytes) {
         b'0' => 0,
         b'1' => 1,
         _ => return Err(Error::Version)
@@ -274,14 +232,13 @@ fn parse_version(buf: &[u8]) -> Result<Status<u8>, Error> {
 // and leave interpretation to user or specialized helpers (akin to .display() in std::path::Path)
 
 #[inline]
-fn parse_reason(buf: &[u8]) -> Result<Status<&str>, Error> {
-    let mut i: usize = 0;
+fn parse_reason<'a>(bytes: &mut Bytes<'a>) -> Result<Status<&'a str>, Error> {
     loop {
-        let b = next!(buf, i);
+        let b = next!(bytes);
         if b == b'\r' || b == b'\n' {
             return Ok(Status::Complete(unsafe {
                 // all bytes up till `i` must have been HTAB / SP / VCHAR
-                str::from_utf8_unchecked(&buf[..i - 1])
+                str::from_utf8_unchecked(bytes.slice_skip(1))
             }));
         } else if !((b >= 0x20 && b <= 0x7E) || b == b'\t') {
             return Err(Error::Status);
@@ -290,14 +247,13 @@ fn parse_reason(buf: &[u8]) -> Result<Status<&str>, Error> {
 }
 
 #[inline]
-fn parse_token(buf: &[u8]) -> Result<Status<&str>, Error> {
-    let mut i: usize = 0;
+fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<Status<&'a str>, Error> {
     loop {
-        let b = next!(buf, i);
+        let b = next!(bytes);
         if b == b' ' || b == b'\r' || b == b'\n' {
             return Ok(Status::Complete(unsafe {
                 // all bytes up till `i` must have been `is_token`.
-                str::from_utf8_unchecked(&buf[..i - 1])
+                str::from_utf8_unchecked(bytes.slice_skip(1))
             }));
         } else if !is_token(b) {
             return Err(Error::Token);
@@ -306,11 +262,10 @@ fn parse_token(buf: &[u8]) -> Result<Status<&str>, Error> {
 }
 
 #[inline]
-fn parse_code(buf: &[u8]) -> Result<Status<u16>, Error> {
-    let mut i = 0;
-    let hundreds = expect!(buf[i] == b'0'...b'9' => Err(Error::Status));
-    let tens = expect!(buf[i] == b'0'...b'9' => Err(Error::Status));
-    let ones = expect!(buf[i] == b'0'...b'9' => Err(Error::Status));
+fn parse_code(bytes: &mut Bytes) -> Result<Status<u16>, Error> {
+    let hundreds = expect!(bytes.next() == b'0'...b'9' => Err(Error::Status));
+    let tens = expect!(bytes.next() == b'0'...b'9' => Err(Error::Status));
+    let ones = expect!(bytes.next() == b'0'...b'9' => Err(Error::Status));
 
     Ok(Status::Complete((hundreds - b'0') as u16 * 100 +
                         (tens - b'0') as u16 * 10 +
@@ -318,10 +273,9 @@ fn parse_code(buf: &[u8]) -> Result<Status<u16>, Error> {
 }
 
 #[inline]
-fn parse_headers<'a>(headers: &mut &mut [Header<'a>], buf: &'a [u8]) -> Result<Status<usize>, Error> {
-    let mut i: usize = 0;
+fn parse_headers<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut Bytes<'a>) -> Result<Status<usize>, Error> {
     let mut num_headers: usize = 0;
-    let mut last_i: usize = 0;
+    let mut count: usize = 0;
     let mut result = Err(Error::TooManyHeaders);
 
     {
@@ -329,17 +283,16 @@ fn parse_headers<'a>(headers: &mut &mut [Header<'a>], buf: &'a [u8]) -> Result<S
 
         'headers: loop {
             // a newline here means the head is over!
-            eof!(buf, i);
-            let b = unsafe { *buf.get_unchecked(i) };
+            let b = next!(bytes);
             if b == b'\r' {
-                i += 1;
-                expect!(buf[i] == b'\n' => Err(Error::NewLine));
-                result = Ok(Status::Complete(i));
+                expect!(bytes.next() == b'\n' => Err(Error::NewLine));
+                result = Ok(Status::Complete(count + bytes.pos()));
                 break;
             } else if b == b'\n' {
-                i += 1;
-                result = Ok(Status::Complete(i));
+                result = Ok(Status::Complete(count + bytes.pos()));
                 break;
+            } else if b == b':' || !is_token(b) {
+                return Err(Error::HeaderName);
             }
 
             let header = match iter.next() {
@@ -348,80 +301,90 @@ fn parse_headers<'a>(headers: &mut &mut [Header<'a>], buf: &'a [u8]) -> Result<S
             };
 
             num_headers += 1;
-            last_i = i;
             // parse header name until colon
             loop {
-                let b = next!(buf, i);
+                let b = next!(bytes);
                 if b == b':' {
+                    count += bytes.pos();
                     header.name = unsafe {
-                        str::from_utf8_unchecked(slice(buf, last_i, i - 1))
+                        str::from_utf8_unchecked(bytes.slice_skip(1))
                     };
                     break;
                 } else if !is_token(b) {
-                    println!("{:?} {:?}", b, b as char);
                     return Err(Error::HeaderName);
                 }
             }
 
-            // eat white space between colon and value
-            loop {
-                let b = next!(buf, i);
-                if !(b == b' ' || b == b'\t') {
-                    i -= 1;
-                    last_i = i;
-                    break;
-                }
-            }
+            let mut b;
 
-            // parse value till EOL
+            'value: loop {
 
-            macro_rules! check {
-                () => ({
-                    let b = unsafe { *buf.get_unchecked(i) };
-                    i += 1;
-                    if !is_token(b) {
-                        if (b < 0o40 && b != 0o11) || b == 0o177 {
-                            if b == b'\r' {
-                                expect!(buf[i] == b'\n' => Err(Error::HeaderValue));
-                                header.value = unsafe { slice(buf, last_i, i - 2) };
-                                continue 'headers;
-                            } else if b == b'\n' {
-                                header.value = unsafe { slice(buf, last_i, i - 1) };
-                                continue 'headers;
-                            } else {
-                                return Err(Error::HeaderValue);
+                // eat white space between colon and value
+                loop {
+                    b = next!(bytes);
+                    if b == b' ' || b == b'\t' {
+                        count += bytes.pos();
+                        bytes.slice();
+                        continue;
+                    } else {
+                        if !is_token(b) {
+                            if (b < 0o40 && b != 0o11) || b == 0o177 {
+                                break 'value;
                             }
                         }
+                        break;
                     }
-                })
-            }
-            while buf.len() - i >= 8 {
-                check!();
-                check!();
-                check!();
-                check!();
-                check!();
-                check!();
-                check!();
-                check!();
-            }
-            loop {
-                let b = next!(buf, i);
-                if !is_token(b) {
-                    if (b < 0o40 && b != 0o11) || b == 0o177 {
-                        if b == b'\r' {
-                            expect!(buf[i] == b'\n' => Err(Error::HeaderValue));
-                            header.value = unsafe { slice(buf, last_i, i - 2) };
-                            break;
-                        } else if b == b'\n' {
-                            header.value = unsafe { slice(buf, last_i, i - 1) };
-                            break;
-                        } else {
-                            return Err(Error::HeaderValue);
+                }
+
+                // parse value till EOL
+
+
+
+                macro_rules! check {
+                    ($bytes:ident, $i:ident) => ({
+                        b = $bytes.$i();
+                        if !is_token(b) {
+                            if (b < 0o40 && b != 0o11) || b == 0o177 {
+                                break 'value;
+                            }
+                        }
+                    });
+                    ($bytes:ident) => ({
+                        check!($bytes, _0);
+                        check!($bytes, _1);
+                        check!($bytes, _2);
+                        check!($bytes, _3);
+                        check!($bytes, _4);
+                        check!($bytes, _5);
+                        check!($bytes, _6);
+                        check!($bytes, _7);
+                    })
+                }
+                while let Some(mut bytes8) = bytes.next_8() {
+                    check!(bytes8);
+                }
+                loop {
+                    b = next!(bytes);
+                    if !is_token(b) {
+                        if (b < 0o40 && b != 0o11) || b == 0o177 {
+                            break 'value;
                         }
                     }
                 }
             }
+
+            //found_ctl
+            if b == b'\r' {
+                expect!(bytes.next() == b'\n' => Err(Error::HeaderValue));
+                count += bytes.pos();
+                header.value = bytes.slice_skip(2);
+            } else if b == b'\n' {
+                count += bytes.pos();
+                header.value = bytes.slice_skip(1);
+            } else {
+                return Err(Error::HeaderValue);
+            }
+
         }
     } // drop iter
 
