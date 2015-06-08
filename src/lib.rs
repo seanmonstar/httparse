@@ -166,14 +166,14 @@ impl<T> Status<T> {
 ///
 /// # Example
 ///
-/// ```
+/// ```no_run
 /// let buf = b"GET /404 HTTP/1.1\r\nHost:";
 /// let mut headers = [httparse::EMPTY_HEADER; 16];
 /// let mut req = httparse::Request::new(&mut headers);
 /// let res = req.parse(buf).unwrap();
 /// if res.is_partial() {
 ///     match req.path {
-///         Some(ref path => {
+///         Some(ref path) => {
 ///             // check router for path.
 ///             // /404 doesn't exist? we could stop parsing
 ///         },
@@ -286,7 +286,7 @@ pub struct Header<'a> {
 /// # Example
 ///
 /// ```
-/// let headers = [httparse::EMTPY_HEADER; 64];
+/// let headers = [httparse::EMPTY_HEADER; 64];
 /// ```
 pub const EMPTY_HEADER: Header<'static> = Header { name: "", value: b"" };
 
