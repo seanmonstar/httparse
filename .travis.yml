@@ -17,7 +17,7 @@ notifications:
   email: false
 
 
-after_success: !
+after_success: |
   [ $TRAVIS_RUST_VERSION = stable ] &&
   sudo apt-get install libcurl4-openssl-dev libelf-dev libdw-dev &&
   wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
