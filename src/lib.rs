@@ -1,3 +1,17 @@
+#![cfg_attr(test, deny(warnings))]
+#![deny(missing_docs)]
+//! # httparse
+//!
+//! A push library for parsing HTTP/1.x requests and responses.
+//!
+//! The focus is on speed and safety. Unsafe code is used to keep parsing fast,
+//! but unsafety is contained in a submodule, with invariants enforced. The
+//! parsing internals use an `Iterator` instead of direct indexing, while
+//! skipping bounds checks.
+//!
+//! The speed is comparable to the fast picohttpparser, currently being around
+//! 1.6 times slower than pico. Improvements can be made as a `likely`
+//! intrinsic, and simd, are stabilized in rustc.
 
 use std::{str, slice};
 use iter::Bytes;
@@ -75,24 +89,47 @@ macro_rules! newline {
     })
 }
 
+/// An error in parsing.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Error {
+    /// Invalid byte in header name.
     HeaderName,
+    /// INvalid byte in header value.
     HeaderValue,
+    /// Invalid byte in new line.
     NewLine,
+    /// Invalid byte in Response status.
     Status,
+    /// Invalid byte where token is required.
     Token,
+    /// Parsed more headers than provided buffer can contain.
     TooManyHeaders,
+    /// Invalid byte in HTTP version.
     Version
 }
 
+/// A Result of any parsing action.
+///
+/// If the input is invalid, an `Error` will be returned. Note that incomplete
+/// data is not considered invalid, and so will not return an error, but rather
+/// a `Ok(Status::Partial)`.
+pub type Result<T> = ::std::result::Result<Status<T>, Error>;
+
+/// The result of a successful parse pass.
+///
+/// `Complete` is used when the buffer contained the complete value.
+/// `Partial` is used when parsing did not reach the end of the expected value,
+/// but no invalid data was found.
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Status<T> {
+    /// The completed result.
     Complete(T),
+    /// A partial result.
     Partial
 }
 
 impl<T> Status<T> {
+    /// Convenience method to check if status is complete.
     #[inline]
     pub fn is_complete(&self) -> bool {
         match *self {
@@ -101,6 +138,7 @@ impl<T> Status<T> {
         }
     }
 
+    /// Convenience method to check if status is partial.
     #[inline]
     pub fn is_partial(&self) -> bool {
         match *self {
@@ -109,6 +147,8 @@ impl<T> Status<T> {
         }
     }
 
+    /// Convenience method to unwrap a Complete value. Panics if the status is
+    /// `Partial`.
     #[inline]
     pub fn unwrap(self) -> T {
         match self {
@@ -118,14 +158,44 @@ impl<T> Status<T> {
     }
 }
 
+/// A parsed Request.
+///
+/// The optional values will be `None` if a parse was not complete, and did not
+/// parse the associated property. This allows you to inspect the parts that
+/// could be parsed, before reading more, in case you wish to exit early.
+///
+/// # Example
+///
+/// ```
+/// let buf = b"GET /404 HTTP/1.1\r\nHost:";
+/// let mut headers = [httparse::EMPTY_HEADER; 16];
+/// let mut req = httparse::Request::new(&mut headers);
+/// let res = req.parse(buf).unwrap();
+/// if res.is_partial() {
+///     match req.path {
+///         Some(ref path => {
+///             // check router for path.
+///             // /404 doesn't exist? we could stop parsing
+///         },
+///         None => {
+///             // must read more and parse again
+///         }
+///     }
+/// }
+/// ```
 pub struct Request<'headers, 'buf: 'headers> {
+    /// The request method, such as `GET`.
     pub method: Option<&'buf str>,
+    /// The request path, such as `/about-us`.
     pub path: Option<&'buf str>,
+    /// The request version, such as `HTTP/1.1`.
     pub version: Option<u8>,
+    /// The request headers.
     pub headers: &'headers mut [Header<'buf>]
 }
 
 impl<'h, 'b> Request<'h, 'b> {
+    /// Creates a new Request, using a slice of headers you allocate.
     #[inline]
     pub fn new(headers: &'h mut [Header<'b>]) -> Request<'h, 'b> {
         Request {
@@ -136,7 +206,8 @@ impl<'h, 'b> Request<'h, 'b> {
         }
     }
 
-    pub fn parse(&mut self, buf: &'b [u8]) -> Result<Status<usize>, Error> {
+    /// Try to parse a buffer of bytes into the Request.
+    pub fn parse(&mut self, buf: &'b [u8]) -> Result<usize> {
         let orig_len = buf.len();
         let mut bytes = Bytes::new(buf);
         self.method = Some(complete!(parse_token(&mut bytes)));
@@ -145,20 +216,28 @@ impl<'h, 'b> Request<'h, 'b> {
         newline!(bytes);
 
         let len = orig_len - bytes.len();
-        let headers_len = complete!(parse_headers(&mut self.headers, &mut bytes));
+        let headers_len = complete!(parse_headers_iter(&mut self.headers, &mut bytes));
 
         Ok(Status::Complete(len + headers_len))
     }
 }
 
+/// A parsed Response.
+///
+/// See `Request` docs for explanation of optional values.
 pub struct Response<'headers, 'buf: 'headers> {
+    /// The response version, such as `HTTP/1.1`.
     pub version: Option<u8>,
+    /// The response code, such as `200`.
     pub code: Option<u16>,
+    /// The response reason-phrase, such as `OK`.
     pub reason: Option<&'buf str>,
+    /// THe response headers.
     pub headers: &'headers mut [Header<'buf>]
 }
 
 impl<'h, 'b> Response<'h, 'b> {
+    /// Creates a new `Response` using a slice of `Header`s you have allocated.
     #[inline]
     pub fn new(headers: &'h mut [Header<'b>]) -> Response<'h, 'b> {
         Response {
@@ -169,7 +248,8 @@ impl<'h, 'b> Response<'h, 'b> {
         }
     }
 
-    pub fn parse(&mut self, buf: &'b [u8]) -> Result<Status<usize>, Error> {
+    /// Try to parse a buffer of bytes into this `Response`.
+    pub fn parse(&mut self, buf: &'b [u8]) -> Result<usize> {
         let orig_len = buf.len();
         let mut bytes = Bytes::new(buf);
 
@@ -181,21 +261,37 @@ impl<'h, 'b> Response<'h, 'b> {
         newline!(bytes);
 
         let len = orig_len - bytes.len();
-        let headers_len = complete!(parse_headers(&mut self.headers, &mut bytes));
+        let headers_len = complete!(parse_headers_iter(&mut self.headers, &mut bytes));
         Ok(Status::Complete(len + headers_len))
     }
 }
 
+/// Represents a parsed header.
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Header<'a> {
+    /// The name portion of a header.
+    ///
+    /// A header name must be valid ASCII-US, so it's safe to store as a `&str`.
     pub name: &'a str,
+    /// The value portion of a header.
+    ///
+    /// While headers **should** be ASCII-US, the specification allows for
+    /// values that may not be, and so the value is stored as bytes.
     pub value: &'a [u8],
 }
 
+/// An empty header, useful for constructing a `Header` array to pass in for
+/// parsing.
+///
+/// # Example
+///
+/// ```
+/// let headers = [httparse::EMTPY_HEADER; 64];
+/// ```
 pub const EMPTY_HEADER: Header<'static> = Header { name: "", value: b"" };
 
 #[inline]
-fn parse_version(bytes: &mut Bytes) -> Result<Status<u8>, Error> {
+fn parse_version(bytes: &mut Bytes) -> Result<u8> {
     expect!(bytes.next() == b'H' => Err(Error::Version));
     expect!(bytes.next() == b'T' => Err(Error::Version));
     expect!(bytes.next() == b'T' => Err(Error::Version));
@@ -208,31 +304,29 @@ fn parse_version(bytes: &mut Bytes) -> Result<Status<u8>, Error> {
         b'1' => 1,
         _ => return Err(Error::Version)
     };
-    //expect!(buf[i] == (b' ' | b'\r' | b'\n') => Err(Error::Version));
     Ok(Status::Complete(v))
 }
 
-// From [RFC 7230](https://tools.ietf.org/html/rfc7230):
-//
-// > ```notrust
-// > reason-phrase  = *( HTAB / SP / VCHAR / obs-text )
-// > HTAB           = %x09        ; horizontal tab
-// > VCHAR          = %x21-7E     ; visible (printing) characters
-// > obs-text       = %x80-FF
-// > ```
-//
-// > A.2.  Changes from RFC 2616
-// >
-// > Non-US-ASCII content in header fields and the reason phrase
-// > has been obsoleted and made opaque (the TEXT rule was removed).
-//
-// Note that the following implementation deliberately rejects the obsoleted (non-US-ASCII) text range.
-//
-// The fully compliant parser should probably just return the reason-phrase as an opaque &[u8] data
-// and leave interpretation to user or specialized helpers (akin to .display() in std::path::Path)
-
+/// From [RFC 7230](https://tools.ietf.org/html/rfc7230):
+///
+/// > ```notrust
+/// > reason-phrase  = *( HTAB / SP / VCHAR / obs-text )
+/// > HTAB           = %x09        ; horizontal tab
+/// > VCHAR          = %x21-7E     ; visible (printing) characters
+/// > obs-text       = %x80-FF
+/// > ```
+///
+/// > A.2.  Changes from RFC 2616
+/// >
+/// > Non-US-ASCII content in header fields and the reason phrase
+/// > has been obsoleted and made opaque (the TEXT rule was removed).
+///
+/// Note that the following implementation deliberately rejects the obsoleted (non-US-ASCII) text range.
+///
+/// The fully compliant parser should probably just return the reason-phrase as an opaque &[u8] data
+/// and leave interpretation to user or specialized helpers (akin to .display() in std::path::Path)
 #[inline]
-fn parse_reason<'a>(bytes: &mut Bytes<'a>) -> Result<Status<&'a str>, Error> {
+fn parse_reason<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
     loop {
         let b = next!(bytes);
         if b == b'\r' || b == b'\n' {
@@ -247,7 +341,7 @@ fn parse_reason<'a>(bytes: &mut Bytes<'a>) -> Result<Status<&'a str>, Error> {
 }
 
 #[inline]
-fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<Status<&'a str>, Error> {
+fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
     loop {
         let b = next!(bytes);
         if b == b' ' || b == b'\r' || b == b'\n' {
@@ -262,7 +356,7 @@ fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<Status<&'a str>, Error> {
 }
 
 #[inline]
-fn parse_code(bytes: &mut Bytes) -> Result<Status<u16>, Error> {
+fn parse_code(bytes: &mut Bytes) -> Result<u16> {
     let hundreds = expect!(bytes.next() == b'0'...b'9' => Err(Error::Status));
     let tens = expect!(bytes.next() == b'0'...b'9' => Err(Error::Status));
     let ones = expect!(bytes.next() == b'0'...b'9' => Err(Error::Status));
@@ -272,8 +366,34 @@ fn parse_code(bytes: &mut Bytes) -> Result<Status<u16>, Error> {
                         (ones - b'0') as u16))
 }
 
+/// Parse a buffer of bytes as headers.
+///
+/// The return value, if complete and successful, includes the index of the
+/// buffer that parsing stopped at, and a sliced reference to the parsed
+/// headers. The length of the slice will be equal to the number of properly
+/// parsed headers.
+///
+/// # Example
+///
+/// ```
+/// let buf = b"Host: foo.bar\nAccept: */*\n\nblah blah";
+/// let mut headers = [httparse::EMPTY_HEADER; 4];
+/// assert_eq!(httparse::parse_headers(buf, &mut headers),
+///            Ok(httparse::Status::Complete((27, &[
+///                httparse::Header { name: "Host", value: b"foo.bar" },
+///                httparse::Header { name: "Accept", value: b"*/*" }
+///            ][..]))));
+/// ```
+pub fn parse_headers<'b: 'h, 'h>(src: &'b [u8], mut dst: &'h mut [Header<'b>])
+    -> Result<(usize, &'h [Header<'b>])> {
+    let mut iter = Bytes::new(src);
+    let pos = complete!(parse_headers_iter(&mut dst, &mut iter));
+    Ok(Status::Complete((pos, dst)))
+}
+
 #[inline]
-fn parse_headers<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut Bytes<'a>) -> Result<Status<usize>, Error> {
+fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut Bytes<'a>)
+    -> Result<usize> {
     let mut num_headers: usize = 0;
     let mut count: usize = 0;
     let mut result = Err(Error::TooManyHeaders);
