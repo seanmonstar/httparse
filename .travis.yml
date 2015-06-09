@@ -7,8 +7,10 @@ rust:
 sudo: false
 
 cache:
+  apt: true
   directories:
-    - target
+    - target/debug/deps
+    - target/debug/build
 
 notifications:
   email: false
