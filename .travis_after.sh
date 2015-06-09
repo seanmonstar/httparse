@@ -9,6 +9,7 @@ if [[ $TRAVIS_RUST_VERSION = stable ]]; then
   make
   make install DESTDIR=../tmp
   cd ../..
+  ls target/debug
   ./kcov-master/tmp/usr/local/bin/kcov --coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo target/kcov target/debug/httparse-*
   if [[ $TRAVIS_BRANCH = master && $TRAVIS_PULL_REQUEST = false ]]; then
     cargo doc --no-deps
