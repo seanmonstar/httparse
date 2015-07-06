@@ -258,7 +258,6 @@ impl<'h, 'b> Response<'h, 'b> {
         self.code = Some(complete!(parse_code(&mut bytes)));
         space!(bytes or Error::Status);
         self.reason = Some(complete!(parse_reason(&mut bytes)));
-        newline!(bytes);
 
         let len = orig_len - bytes.len();
         let headers_len = complete!(parse_headers_iter(&mut self.headers, &mut bytes));
@@ -329,7 +328,13 @@ fn parse_version(bytes: &mut Bytes) -> Result<u8> {
 fn parse_reason<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
     loop {
         let b = next!(bytes);
-        if b == b'\r' || b == b'\n' {
+        if b == b'\r' {
+            expect!(bytes.next() == b'\n' => Err(Error::Status));
+            return Ok(Status::Complete(unsafe {
+                // all bytes up till `i` must have been HTAB / SP / VCHAR
+                str::from_utf8_unchecked(bytes.slice_skip(2))
+            }));
+        } else if b == b'\n' {
             return Ok(Status::Complete(unsafe {
                 // all bytes up till `i` must have been HTAB / SP / VCHAR
                 str::from_utf8_unchecked(bytes.slice_skip(1))
@@ -604,7 +609,7 @@ mod tests {
 
     req! {
         test_request_newlines,
-        b"GET / HTTP/1.1\n\n",
+        b"GET / HTTP/1.1\nHost: foo.bar\n\n",
         |_| {}
     }
 
@@ -634,6 +639,12 @@ mod tests {
             assert_eq!(res.code.unwrap(), 200);
             assert_eq!(res.reason.unwrap(), "OK");
         }
+    }
+
+    res! {
+        test_response_newlines,
+        b"HTTP/1.0 403 Forbidden\nServer: foo.bar\n\n",
+        |_| {}
     }
 
     res! {
