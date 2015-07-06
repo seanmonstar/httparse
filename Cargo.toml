@@ -1,10 +1,10 @@
 [package]
 
 name = "httparse"
-version = "0.1.4"
+version = "0.1.5"
 authors = ["Sean McArthur <sean.monstar@gmail.com>"]
 license = "MIT"
-description = "A tiny, safe, speedy HTTP/1.x parser."
+description = "A tiny, safe, speedy, zero-copy HTTP/1.x parser."
 repository = "https://github.com/seanmonstar/httparse"
 
 [dev-dependencies]
