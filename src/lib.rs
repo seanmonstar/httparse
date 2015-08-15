@@ -209,6 +209,7 @@ impl<'h, 'b> Request<'h, 'b> {
     /// Try to parse a buffer of bytes into the Request.
     pub fn parse(&mut self, buf: &'b [u8]) -> Result<usize> {
         let orig_len = buf.len();
+        let buf = skip_empty_lines(buf);
         let mut bytes = Bytes::new(buf);
         self.method = Some(complete!(parse_token(&mut bytes)));
         self.path = Some(complete!(parse_token(&mut bytes)));
@@ -220,6 +221,14 @@ impl<'h, 'b> Request<'h, 'b> {
 
         Ok(Status::Complete(len + headers_len))
     }
+}
+
+fn skip_empty_lines(buf: &[u8]) -> &[u8] {
+    let mut skip: usize = 0;
+    while (buf.len() > skip + 1) && (buf[skip] == b'\r') && (buf[skip + 1] == b'\n') {
+        skip += 2;
+    }
+    &buf[skip..]
 }
 
 /// A parsed Response.
@@ -613,6 +622,16 @@ mod tests {
         |_| {}
     }
 
+    req! {
+        test_request_empty_lines_prefix,
+        b"\r\n\r\nGET / HTTP/1.1\r\n\r\n",
+        |req| {
+            assert_eq!(req.method.unwrap(), "GET");
+            assert_eq!(req.path.unwrap(), "/");
+            assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers.len(), 0);
+        }
+    }
 
     macro_rules! res {
         ($name:ident, $buf:expr, $closure:expr) => (
