@@ -210,6 +210,7 @@ impl<'h, 'b> Request<'h, 'b> {
     pub fn parse(&mut self, buf: &'b [u8]) -> Result<usize> {
         let orig_len = buf.len();
         let mut bytes = Bytes::new(buf);
+        complete!(skip_empty_lines(&mut bytes));
         self.method = Some(complete!(parse_token(&mut bytes)));
         self.path = Some(complete!(parse_token(&mut bytes)));
         self.version = Some(complete!(parse_version(&mut bytes)));
@@ -219,6 +220,27 @@ impl<'h, 'b> Request<'h, 'b> {
         let headers_len = complete!(parse_headers_iter(&mut self.headers, &mut bytes));
 
         Ok(Status::Complete(len + headers_len))
+    }
+}
+
+#[inline]
+fn skip_empty_lines(bytes: &mut Bytes) -> Result<()> {
+    loop {
+        let b = bytes.peek();
+        match b {
+            Some(b'\r') => {
+                bytes.bump();
+                expect!(bytes.next() == b'\n' => Err(Error::NewLine));
+            },
+            Some(b'\n') => {
+                bytes.bump();
+            },
+            Some(..) => {
+                bytes.slice();
+                return Ok(Status::Complete(()));
+            },
+            None => return Ok(Status::Partial)
+        }
     }
 }
 
@@ -613,6 +635,27 @@ mod tests {
         |_| {}
     }
 
+    req! {
+        test_request_empty_lines_prefix,
+        b"\r\n\r\nGET / HTTP/1.1\r\n\r\n",
+        |req| {
+            assert_eq!(req.method.unwrap(), "GET");
+            assert_eq!(req.path.unwrap(), "/");
+            assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers.len(), 0);
+        }
+    }
+    
+    req! {
+        test_request_empty_lines_prefix_lf_only,
+        b"\n\nGET / HTTP/1.1\n\n",
+        |req| {
+            assert_eq!(req.method.unwrap(), "GET");
+            assert_eq!(req.path.unwrap(), "/");
+            assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers.len(), 0);
+        }
+    }
 
     macro_rules! res {
         ($name:ident, $buf:expr, $closure:expr) => (
