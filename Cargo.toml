@@ -9,3 +9,8 @@ repository = "https://github.com/seanmonstar/httparse"
 
 [dev-dependencies]
 pico-sys = "*"
+
+[profile.bench]
+lto = true
+codegen-units = 1
+opt-level = 3
