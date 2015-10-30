@@ -21,13 +21,10 @@ impl<'a> Bytes<'a> {
 
     #[inline]
     pub fn peek(&self) -> Option<u8> {
-        if self.slice.len() > self.pos {
-            Some(unsafe { *self.slice.get_unchecked(self.pos) })
-        } else {
-            None
-        }
+        self.slice.get(self.pos).cloned()
     }
 
+    #[inline]
     pub fn bump(&mut self) {
         self.pos += 1;
     }
