@@ -105,8 +105,13 @@ pub enum Error {
     /// Parsed more headers than provided buffer can contain.
     TooManyHeaders,
     /// Invalid byte in HTTP version.
-    Version
+    Version,
 }
+
+/// An error in parsing a chunk size.
+// Note: Move this into the error enum once v2.0 is released.
+#[derive(Debug, PartialEq, Eq)]
+pub struct InvalidChunkSize;
 
 /// A Result of any parsing action.
 ///
@@ -539,9 +544,73 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
     result
 }
 
+/// Parse a buffer of bytes as a chunk size.
+///
+/// The return value, if complete and successful, includes the index of the
+/// buffer that parsing stopped at, and the size of the following chunk.
+///
+/// # Example
+///
+/// ```
+/// let buf = b"4\r\nRust\r\n0\r\n\r\n";
+/// assert_eq!(httparse::parse_chunk_size(buf),
+///            Ok(httparse::Status::Complete((3, 4))));
+/// ```
+pub fn parse_chunk_size(buf: &[u8])
+        -> ::std::result::Result<Status<(usize, u64)>, InvalidChunkSize> {
+    const RADIX: u64 = 16;
+    let mut bytes = Bytes::new(buf);
+    let mut size = 0;
+    let mut in_chunk_size = true;
+    let mut in_ext = false;
+    loop {
+        let b = next!(bytes);
+        match b {
+            b'0'...b'9' if in_chunk_size => {
+                size *= RADIX;
+                size += (b - b'0') as u64;
+            },
+            b'a'...b'f' if in_chunk_size => {
+                size *= RADIX;
+                size += (b + 10 - b'a') as u64;
+            }
+            b'A'...b'F' if in_chunk_size => {
+                size *= RADIX;
+                size += (b + 10 - b'A') as u64;
+            }
+            b'\r' => {
+                match next!(bytes) {
+                    b'\n' => break,
+                    _ => return Err(InvalidChunkSize),
+                }
+            }
+            // If we weren't in the extension yet, the ";" signals its start
+            b';' if !in_ext => {
+                in_ext = true;
+                in_chunk_size = false;
+            }
+            // "Linear white space" is ignored between the chunk size and the
+            // extension separator token (";") due to the "implied *LWS rule".
+            b'\t' | b' ' if !in_ext & !in_chunk_size => {}
+            // LWS can follow the chunk size, but no more digits can come
+            b'\t' | b' ' if in_chunk_size => in_chunk_size = false,
+            // We allow any arbitrary octet once we are in the extension, since
+            // they all get ignored anyway. According to the HTTP spec, valid
+            // extensions would have a more strict syntax:
+            //     (token ["=" (token | quoted-string)])
+            // but we gain nothing by rejecting an otherwise valid chunk size.
+            _ if in_ext => {}
+            // Finally, if we aren't in the extension and we're reading any
+            // other octet, the chunk size line is invalid!
+            _ => return Err(InvalidChunkSize),
+        }
+    }
+    Ok(Status::Complete((bytes.pos(), size)))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Request, Response, Status, EMPTY_HEADER, shrink};
+    use super::{Request, Response, Status, EMPTY_HEADER, shrink, parse_chunk_size};
 
     const NUM_OF_HEADERS: usize = 4;
 
@@ -645,7 +714,7 @@ mod tests {
             assert_eq!(req.headers.len(), 0);
         }
     }
-    
+
     req! {
         test_request_empty_lines_prefix_lf_only,
         b"\n\nGET / HTTP/1.1\n\n",
@@ -737,5 +806,19 @@ mod tests {
         b"HTTP/1.1 200",
         Ok(Status::Partial),
         |_res| {}
+    }
+
+    #[test]
+    fn test_chunk_size() {
+        assert_eq!(parse_chunk_size(b"0\r\n"), Ok(Status::Complete((3, 0))));
+        assert_eq!(parse_chunk_size(b"12\r\nchunk"), Ok(Status::Complete((4, 18))));
+        assert_eq!(parse_chunk_size(b"3086d\r\n"), Ok(Status::Complete((7, 198765))));
+        assert_eq!(parse_chunk_size(b"3735AB1;foo bar*\r\n"), Ok(Status::Complete((18, 57891505))));
+        assert_eq!(parse_chunk_size(b"3735ab1 ; baz \r\n"), Ok(Status::Complete((16, 57891505))));
+        assert_eq!(parse_chunk_size(b"77a65\r"), Ok(Status::Partial));
+        assert_eq!(parse_chunk_size(b"ab"), Ok(Status::Partial));
+        assert_eq!(parse_chunk_size(b"567f8a\rfoo"), Err(::InvalidChunkSize));
+        assert_eq!(parse_chunk_size(b"567f8a\rfoo"), Err(::InvalidChunkSize));
+        assert_eq!(parse_chunk_size(b"567xf8a\r\n"), Err(::InvalidChunkSize));
     }
 }
