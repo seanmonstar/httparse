@@ -376,7 +376,7 @@ fn parse_reason<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
 fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
     loop {
         let b = next!(bytes);
-        if b == b' ' || b == b'\r' || b == b'\n' {
+        if b == b' ' {
             return Ok(Status::Complete(unsafe {
                 // all bytes up till `i` must have been `is_token`.
                 str::from_utf8_unchecked(bytes.slice_skip(1))
@@ -724,6 +724,13 @@ mod tests {
             assert_eq!(req.version.unwrap(), 1);
             assert_eq!(req.headers.len(), 0);
         }
+    }
+
+    req! {
+        test_request_with_invalid_token_delimiter,
+        b"GET\n/ HTTP/1.1\r\nHost: foo.bar\r\n\r\n",
+        Err(::Error::Token),
+        |_| {}
     }
 
     macro_rules! res {
