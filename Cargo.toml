@@ -1,14 +1,14 @@
 [package]
 
 name = "httparse"
-version = "1.1.1"
+version = "1.1.2"
 authors = ["Sean McArthur <sean.monstar@gmail.com>"]
 license = "MIT"
 description = "A tiny, safe, speedy, zero-copy HTTP/1.x parser."
 repository = "https://github.com/seanmonstar/httparse"
 
 [dev-dependencies]
-pico-sys = "*"
+pico-sys = "0.0"
 
 [profile.bench]
 lto = true
