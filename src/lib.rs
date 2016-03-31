@@ -280,6 +280,7 @@ impl<'h, 'b> Response<'h, 'b> {
         let orig_len = buf.len();
         let mut bytes = Bytes::new(buf);
 
+        complete!(skip_empty_lines(&mut bytes));
         self.version = Some(complete!(parse_version(&mut bytes)));
         space!(bytes or Error::Version);
         self.code = Some(complete!(parse_code(&mut bytes)));
@@ -812,6 +813,12 @@ mod tests {
         test_response_code_missing_space,
         b"HTTP/1.1 200",
         Ok(Status::Partial),
+        |_res| {}
+    }
+
+    res! {
+        test_response_empty_lines_prefix_lf_only,
+        b"\n\nHTTP/1.1 200 OK\n\n",
         |_res| {}
     }
 
