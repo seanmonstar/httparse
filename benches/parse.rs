@@ -1,4 +1,4 @@
-#![feature(raw, test)]
+#![feature(test)]
 
 extern crate pico_sys as pico;
 extern crate httparse;
@@ -22,12 +22,7 @@ Cookie: wp_ozh_wsa_visits=2; wp_ozh_wsa_visit_lasttime=xxxxxxxxxx; __utma=xxxxxx
 
 #[bench]
 fn bench_pico(b: &mut test::Bencher) {
-    use std::{mem, raw};
-
-    unsafe fn slice_to_mut_pair<'a, T>(slice: &'a mut &[T]) -> (&'a mut *const T, &'a mut usize) {
-        let raw = mem::transmute::<_, &mut raw::Slice<T>>(slice);
-        (&mut raw.data, &mut raw.len)
-    }
+    use std::mem;
 
     #[repr(C)]
     #[derive(Clone, Copy)]
@@ -40,6 +35,7 @@ fn bench_pico(b: &mut test::Bencher) {
     let path = [0i8; 16];
     let mut minor_version = 0;
     let mut h = [Header(&[], &[]); 16];
+    let mut h_len = h.len();
     let headers = Headers(&mut h);
     let prev_buf_len = 0;
 
@@ -54,7 +50,7 @@ fn bench_pico(b: &mut test::Bencher) {
                 &mut 16,
                 &mut minor_version,
                 mem::transmute::<*mut Header, *mut pico::ffi::phr_header>(headers.0.as_mut_ptr()),
-                slice_to_mut_pair(&mut &*headers.0).1 as *mut usize as *mut _,
+                &mut h_len as *mut usize as *mut _,
                 prev_buf_len
             )
         };
