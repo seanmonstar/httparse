@@ -1,4 +1,4 @@
-use std::slice;
+use core::slice;
 
 pub struct Bytes<'a> {
     slice: &'a [u8],
