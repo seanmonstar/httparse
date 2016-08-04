@@ -1,3 +1,4 @@
+#![cfg_attr(not(test),no_std)]
 #![cfg_attr(test, deny(warnings))]
 #![deny(missing_docs)]
 //! # httparse
@@ -13,7 +14,9 @@
 //! 1.6 times slower than pico. Improvements can be made as a `likely`
 //! intrinsic, and simd, are stabilized in rustc.
 
-use std::{str, slice};
+#[cfg(test)] extern crate core;
+
+use core::{str, slice};
 use iter::Bytes;
 
 mod iter;
@@ -118,7 +121,7 @@ pub struct InvalidChunkSize;
 /// If the input is invalid, an `Error` will be returned. Note that incomplete
 /// data is not considered invalid, and so will not return an error, but rather
 /// a `Ok(Status::Partial)`.
-pub type Result<T> = ::std::result::Result<Status<T>, Error>;
+pub type Result<T> = ::core::result::Result<Status<T>, Error>;
 
 /// The result of a successful parse pass.
 ///
@@ -558,7 +561,7 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
 ///            Ok(httparse::Status::Complete((3, 4))));
 /// ```
 pub fn parse_chunk_size(buf: &[u8])
-        -> ::std::result::Result<Status<(usize, u64)>, InvalidChunkSize> {
+        -> ::core::result::Result<Status<(usize, u64)>, InvalidChunkSize> {
     const RADIX: u64 = 16;
     let mut bytes = Bytes::new(buf);
     let mut size = 0;
