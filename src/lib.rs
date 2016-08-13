@@ -97,7 +97,7 @@ macro_rules! newline {
 pub enum Error {
     /// Invalid byte in header name.
     HeaderName,
-    /// INvalid byte in header value.
+    /// Invalid byte in header value.
     HeaderValue,
     /// Invalid byte in new line.
     NewLine,
@@ -262,7 +262,7 @@ pub struct Response<'headers, 'buf: 'headers> {
     pub code: Option<u16>,
     /// The response reason-phrase, such as `OK`.
     pub reason: Option<&'buf str>,
-    /// THe response headers.
+    /// The response headers.
     pub headers: &'headers mut [Header<'buf>]
 }
 
