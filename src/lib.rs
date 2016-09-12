@@ -111,10 +111,30 @@ pub enum Error {
     Version,
 }
 
+impl ::core::fmt::Display for Error {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        match *self {
+            Error::HeaderName => f.write_str("invalid header name"),
+            Error::HeaderValue => f.write_str("invalid header value"),
+            Error::NewLine => f.write_str("invalid new line"),
+            Error::Status => f.write_str("invalid response status"),
+            Error::Token => f.write_str("invalid token"),
+            Error::TooManyHeaders => f.write_str("too many headers"),
+            Error::Version => f.write_str("invalid HTTP version"),
+        }
+    }
+}
+
 /// An error in parsing a chunk size.
 // Note: Move this into the error enum once v2.0 is released.
 #[derive(Debug, PartialEq, Eq)]
 pub struct InvalidChunkSize;
+
+impl ::core::fmt::Display for InvalidChunkSize {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        f.write_str("invalid chunk size")
+    }
+}
 
 /// A Result of any parsing action.
 ///
