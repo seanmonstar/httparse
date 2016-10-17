@@ -1,4 +1,8 @@
+#[cfg(feature = "no_std")]
 use core::slice;
+
+#[cfg(not(feature = "no_std"))]
+use std::slice;
 
 pub struct Bytes<'a> {
     slice: &'a [u8],
