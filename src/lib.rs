@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "no_std", no_std)]
+#![cfg_attr(all(feature = "no_std", not(test)), no_std)]
 #![cfg_attr(test, deny(warnings))]
 #![deny(missing_docs)]
 //! # httparse
@@ -14,6 +14,7 @@
 //! 1.6 times slower than pico. Improvements can be made as a `likely`
 //! intrinsic, and simd, are stabilized in rustc.
 
+#[cfg(test)] extern crate core;
 
 #[cfg(feature = "no_std")]
 use core::{fmt, result, str, slice};
