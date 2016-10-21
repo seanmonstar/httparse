@@ -7,6 +7,10 @@ license = "MIT"
 description = "A tiny, safe, speedy, zero-copy HTTP/1.x parser."
 repository = "https://github.com/seanmonstar/httparse"
 
+[features]
+default = ["no_std"]
+no_std = []
+
 [dev-dependencies]
 pico-sys = "0.0"
 

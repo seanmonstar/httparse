@@ -12,6 +12,12 @@ cache:
     - target/debug/deps
     - target/debug/build
 
+script:
+  - cargo build
+  - cargo test --verbose
+  - cargo build --verbose --no-default-features
+  - cargo test --verbose --no-default-features
+
 notifications:
   email: false
 

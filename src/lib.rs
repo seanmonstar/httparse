@@ -1,4 +1,4 @@
-#![cfg_attr(not(test),no_std)]
+#![cfg_attr(all(feature = "no_std", not(test)), no_std)]
 #![cfg_attr(test, deny(warnings))]
 #![deny(missing_docs)]
 //! # httparse
@@ -16,7 +16,12 @@
 
 #[cfg(test)] extern crate core;
 
-use core::{str, slice};
+#[cfg(feature = "no_std")]
+use core::{fmt, result, str, slice};
+
+#[cfg(not(feature = "no_std"))]
+use std::{fmt, result, str, slice};
+
 use iter::Bytes;
 
 mod iter;
@@ -111,17 +116,31 @@ pub enum Error {
     Version,
 }
 
-impl ::core::fmt::Display for Error {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+impl Error {
+    #[inline]
+    fn description_str(&self) -> &'static str {
         match *self {
-            Error::HeaderName => f.write_str("invalid header name"),
-            Error::HeaderValue => f.write_str("invalid header value"),
-            Error::NewLine => f.write_str("invalid new line"),
-            Error::Status => f.write_str("invalid response status"),
-            Error::Token => f.write_str("invalid token"),
-            Error::TooManyHeaders => f.write_str("too many headers"),
-            Error::Version => f.write_str("invalid HTTP version"),
+            Error::HeaderName => "invalid header name",
+            Error::HeaderValue => "invalid header value",
+            Error::NewLine => "invalid new line",
+            Error::Status => "invalid response status",
+            Error::Token => "invalid token",
+            Error::TooManyHeaders => "too many headers",
+            Error::Version => "invalid HTTP version",
         }
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(self.description_str())
+    }
+}
+
+#[cfg(not(feature = "no_std"))]
+impl std::error::Error for Error {
+    fn description(&self) -> &str {
+        self.description_str()
     }
 }
 
@@ -130,8 +149,8 @@ impl ::core::fmt::Display for Error {
 #[derive(Debug, PartialEq, Eq)]
 pub struct InvalidChunkSize;
 
-impl ::core::fmt::Display for InvalidChunkSize {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+impl fmt::Display for InvalidChunkSize {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("invalid chunk size")
     }
 }
@@ -141,7 +160,7 @@ impl ::core::fmt::Display for InvalidChunkSize {
 /// If the input is invalid, an `Error` will be returned. Note that incomplete
 /// data is not considered invalid, and so will not return an error, but rather
 /// a `Ok(Status::Partial)`.
-pub type Result<T> = ::core::result::Result<Status<T>, Error>;
+pub type Result<T> = result::Result<Status<T>, Error>;
 
 /// The result of a successful parse pass.
 ///
@@ -581,7 +600,7 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
 ///            Ok(httparse::Status::Complete((3, 4))));
 /// ```
 pub fn parse_chunk_size(buf: &[u8])
-        -> ::core::result::Result<Status<(usize, u64)>, InvalidChunkSize> {
+        -> result::Result<Status<(usize, u64)>, InvalidChunkSize> {
     const RADIX: u64 = 16;
     let mut bytes = Bytes::new(buf);
     let mut size = 0;
