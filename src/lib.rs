@@ -879,4 +879,13 @@ mod tests {
         assert_eq!(parse_chunk_size(b"567f8a\rfoo"), Err(::InvalidChunkSize));
         assert_eq!(parse_chunk_size(b"567xf8a\r\n"), Err(::InvalidChunkSize));
     }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn test_std_error() {
+        use super::Error;
+        use std::error::Error as StdError;
+        let err = Error::HeaderName;
+        assert_eq!(err.to_string(), err.description());
+    }
 }
