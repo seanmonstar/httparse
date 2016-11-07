@@ -13,7 +13,7 @@ cache:
     - target/debug/build
 
 script:
-  - cargo build
+  - cargo build --verbose
   - cargo test --verbose
   - cargo build --verbose --no-default-features
   - cargo test --verbose --no-default-features
