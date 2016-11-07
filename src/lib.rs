@@ -1,4 +1,4 @@
-#![cfg_attr(all(feature = "no_std", not(test)), no_std)]
+#![cfg_attr(not(feature = "std"),  no_std)]
 #![cfg_attr(test, deny(warnings))]
 #![deny(missing_docs)]
 //! # httparse
@@ -14,13 +14,9 @@
 //! 1.6 times slower than pico. Improvements can be made as a `likely`
 //! intrinsic, and simd, are stabilized in rustc.
 
-#[cfg(test)] extern crate core;
+#[cfg(feature = "std")] extern crate std as core;
 
-#[cfg(feature = "no_std")]
 use core::{fmt, result, str, slice};
-
-#[cfg(not(feature = "no_std"))]
-use std::{fmt, result, str, slice};
 
 use iter::Bytes;
 
@@ -137,7 +133,7 @@ impl fmt::Display for Error {
     }
 }
 
-#[cfg(not(feature = "no_std"))]
+#[cfg(feature = "std")]
 impl std::error::Error for Error {
     fn description(&self) -> &str {
         self.description_str()
@@ -670,18 +666,21 @@ mod tests {
     }
 
     macro_rules! req {
-        ($name:ident, $buf:expr, $closure:expr) => (
-            req! {$name, $buf, Ok(Status::Complete($buf.len())), $closure }
+        ($name:ident, $buf:expr, |$arg:ident| $body:expr) => (
+            req! {$name, $buf, Ok(Status::Complete($buf.len())), |$arg| $body }
         );
-        ($name:ident, $buf:expr, $len:expr, $closure:expr) => (
+        ($name:ident, $buf:expr, $len:expr, |$arg:ident| $body:expr) => (
         #[test]
         fn $name() {
             let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
             let mut req = Request::new(&mut headers[..]);
-            let closure: Box<Fn(Request)> = Box::new($closure);
             let status = req.parse($buf.as_ref());
             assert_eq!(status, $len);
             closure(req);
+
+            fn closure($arg: Request) {
+                $body
+            }
         }
         )
     }
@@ -744,7 +743,7 @@ mod tests {
     req! {
         test_request_newlines,
         b"GET / HTTP/1.1\nHost: foo.bar\n\n",
-        |_| {}
+        |_r| {}
     }
 
     req! {
@@ -773,22 +772,25 @@ mod tests {
         test_request_with_invalid_token_delimiter,
         b"GET\n/ HTTP/1.1\r\nHost: foo.bar\r\n\r\n",
         Err(::Error::Token),
-        |_| {}
+        |_r| {}
     }
 
     macro_rules! res {
-        ($name:ident, $buf:expr, $closure:expr) => (
-            res! {$name, $buf, Ok(Status::Complete($buf.len())), $closure }
+        ($name:ident, $buf:expr, |$arg:ident| $body:expr) => (
+            res! {$name, $buf, Ok(Status::Complete($buf.len())), |$arg| $body }
         );
-        ($name:ident, $buf:expr, $len:expr, $closure:expr) => (
+        ($name:ident, $buf:expr, $len:expr, |$arg:ident| $body:expr) => (
         #[test]
         fn $name() {
             let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
             let mut res = Response::new(&mut headers[..]);
-            let closure: Box<Fn(Response)> = Box::new($closure);
             let status = res.parse($buf.as_ref());
             assert_eq!(status, $len);
             closure(res);
+
+            fn closure($arg: Response) {
+                $body
+            }
         }
         )
     }
@@ -806,7 +808,7 @@ mod tests {
     res! {
         test_response_newlines,
         b"HTTP/1.0 403 Forbidden\nServer: foo.bar\n\n",
-        |_| {}
+        |_r| {}
     }
 
     res! {
@@ -876,5 +878,14 @@ mod tests {
         assert_eq!(parse_chunk_size(b"567f8a\rfoo"), Err(::InvalidChunkSize));
         assert_eq!(parse_chunk_size(b"567f8a\rfoo"), Err(::InvalidChunkSize));
         assert_eq!(parse_chunk_size(b"567xf8a\r\n"), Err(::InvalidChunkSize));
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn test_std_error() {
+        use super::Error;
+        use std::error::Error as StdError;
+        let err = Error::HeaderName;
+        assert_eq!(err.to_string(), err.description());
     }
 }

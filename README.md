@@ -6,7 +6,7 @@
 
 A push parser for the HTTP 1.x protocol. Avoids allocations. Fast.
 
-[Documentation](https://seanmonstar.github.io/httparse)
+[Documentation](https://docs.rs/httparse)
 
 ## Usage
 
