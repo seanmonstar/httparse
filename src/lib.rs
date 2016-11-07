@@ -602,18 +602,31 @@ pub fn parse_chunk_size(buf: &[u8])
     let mut size = 0;
     let mut in_chunk_size = true;
     let mut in_ext = false;
+    let mut count = 0;
     loop {
         let b = next!(bytes);
         match b {
             b'0'...b'9' if in_chunk_size => {
+                if count > 15 {
+                    return Err(InvalidChunkSize);
+                }
+                count += 1;
                 size *= RADIX;
                 size += (b - b'0') as u64;
             },
             b'a'...b'f' if in_chunk_size => {
+                if count > 15 {
+                    return Err(InvalidChunkSize);
+                }
+                count += 1;
                 size *= RADIX;
                 size += (b + 10 - b'a') as u64;
             }
             b'A'...b'F' if in_chunk_size => {
+                if count > 15 {
+                    return Err(InvalidChunkSize);
+                }
+                count += 1;
                 size *= RADIX;
                 size += (b + 10 - b'A') as u64;
             }
@@ -878,6 +891,10 @@ mod tests {
         assert_eq!(parse_chunk_size(b"567f8a\rfoo"), Err(::InvalidChunkSize));
         assert_eq!(parse_chunk_size(b"567f8a\rfoo"), Err(::InvalidChunkSize));
         assert_eq!(parse_chunk_size(b"567xf8a\r\n"), Err(::InvalidChunkSize));
+        assert_eq!(parse_chunk_size(b"ffffffffffffffff\r\n"), Ok(Status::Complete((18, ::core::u64::MAX))));
+        assert_eq!(parse_chunk_size(b"1ffffffffffffffff\r\n"), Err(::InvalidChunkSize));
+        assert_eq!(parse_chunk_size(b"Affffffffffffffff\r\n"), Err(::InvalidChunkSize));
+        assert_eq!(parse_chunk_size(b"fffffffffffffffff\r\n"), Err(::InvalidChunkSize));
     }
 
     #[cfg(feature = "std")]
