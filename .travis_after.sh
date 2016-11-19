@@ -11,13 +11,6 @@ if [[ $TRAVIS_RUST_VERSION = stable ]]; then
   cd ../..
   ls target/debug
   ./kcov-master/tmp/usr/local/bin/kcov --coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo target/kcov target/debug/httparse-*
-  if [[ $TRAVIS_BRANCH = master && $TRAVIS_PULL_REQUEST = false ]]; then
-    cargo doc --no-deps
-    echo "<meta http-equiv=refresh content=0;url=httparse/index.html>" > target/doc/index.html
-    pip install --user ghp-import &&
-    /home/travis/.local/bin/ghp-import -n target/doc &&
-    git push -fq https://${TOKEN}@github.com/${TRAVIS_REPO_SLUG}.git gh-pages
-  fi
 fi
 
 
