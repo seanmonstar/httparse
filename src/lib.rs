@@ -507,6 +507,7 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
             }
 
             let mut b;
+            let mut trailing_whitespace : usize = 0;
 
             'value: loop {
 
@@ -529,16 +530,26 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
 
                 // parse value till EOL
 
-
-
-                macro_rules! check {
-                    ($bytes:ident, $i:ident) => ({
-                        b = $bytes.$i();
-                        if !is_token(b) {
+                macro_rules! check_single_byte {
+                    ($b:ident) => ({
+                        let is_b_token = is_token(b);
+                        if b == b' ' || b == b'\t' {
+                            trailing_whitespace += 1;
+                        } else if is_b_token {
+                            trailing_whitespace = 0;
+                        }
+                        if !is_b_token {
                             if (b < 0o40 && b != 0o11) || b == 0o177 {
                                 break 'value;
                             }
                         }
+                    })
+                }
+
+                macro_rules! check {
+                    ($bytes:ident, $i:ident) => ({
+                        b = $bytes.$i();
+                        check_single_byte!(b);
                     });
                     ($bytes:ident) => ({
                         check!($bytes, _0);
@@ -556,11 +567,7 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
                 }
                 loop {
                     b = next!(bytes);
-                    if !is_token(b) {
-                        if (b < 0o40 && b != 0o11) || b == 0o177 {
-                            break 'value;
-                        }
-                    }
+                    check_single_byte!(b);
                 }
             }
 
@@ -568,10 +575,10 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
             if b == b'\r' {
                 expect!(bytes.next() == b'\n' => Err(Error::HeaderValue));
                 count += bytes.pos();
-                header.value = bytes.slice_skip(2);
+                header.value = bytes.slice_skip(2 + trailing_whitespace);
             } else if b == b'\n' {
                 count += bytes.pos();
-                header.value = bytes.slice_skip(1);
+                header.value = bytes.slice_skip(1 + trailing_whitespace);
             } else {
                 return Err(Error::HeaderValue);
             }
