@@ -746,6 +746,19 @@ mod tests {
         }
     }
 
+    req! {
+        test_field_value_trailing_whitespace,
+        b"GET / HTTP/1.1\r\nHost: foo.com \t \r\nA: a b \t\r\n\r\n",
+        |req| {
+            assert_eq!(req.method.unwrap(), "GET");
+            assert_eq!(req.path.unwrap(), "/");
+            assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers[0].name, "Host");
+            assert_eq!(req.headers[0].value, b"foo.com");
+            assert_eq!(req.headers[1].name, "A");
+            assert_eq!(req.headers[1].value, b"a b");
+        }
+    }
 
     req! {
         test_request_partial,
