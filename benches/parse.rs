@@ -43,7 +43,7 @@ fn bench_pico(b: &mut test::Bencher) {
         let ret = unsafe {
             pico::ffi::phr_parse_request(
                 REQ.as_ptr() as *const _,
-                REQ.len() as u64,
+                REQ.len(),
                 &mut method.as_ptr(),
                 &mut 16,
                 &mut path.as_ptr(),
