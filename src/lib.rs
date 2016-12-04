@@ -322,8 +322,29 @@ impl<'h, 'b> Response<'h, 'b> {
         self.version = Some(complete!(parse_version(&mut bytes)));
         space!(bytes or Error::Version);
         self.code = Some(complete!(parse_code(&mut bytes)));
-        space!(bytes or Error::Status);
-        self.reason = Some(complete!(parse_reason(&mut bytes)));
+
+        // RFC7230 says there must be 'SP' and then reason-phrase, but admits
+        // its only for legacy reasons. With the reason-phrase completely
+        // optional (and preferred to be omitted) in HTTP2, we'll just
+        // handle any response that doesn't include a reason-phrase, because
+        // it's more lenient, and we don't care anyways.
+        //
+        // So, a SP means parse a reason-phrase.
+        // A newline means go to headers.
+        // Anything else we'll say is a malformed status.
+        match next!(bytes) {
+            b' ' => {
+                bytes.slice();
+                self.reason = Some(complete!(parse_reason(&mut bytes)));
+            },
+            b'\r' => {
+                expect!(bytes.next() == b'\n' => Err(Error::Status));
+                self.reason = Some("");
+            },
+            b'\n' => self.reason = Some(""),
+            _ => return Err(Error::Status),
+        }
+
 
         let len = orig_len - bytes.len();
         let headers_len = complete!(parse_headers_iter(&mut self.headers, &mut bytes));
@@ -827,6 +848,16 @@ mod tests {
     res! {
         test_response_reason_missing,
         b"HTTP/1.1 200 \r\n\r\n",
+        |res| {
+            assert_eq!(res.version.unwrap(), 1);
+            assert_eq!(res.code.unwrap(), 200);
+            assert_eq!(res.reason.unwrap(), "");
+        }
+    }
+
+    res! {
+        test_response_reason_missing_no_space,
+        b"HTTP/1.1 200\r\n\r\n",
         |res| {
             assert_eq!(res.version.unwrap(), 1);
             assert_eq!(res.code.unwrap(), 200);
