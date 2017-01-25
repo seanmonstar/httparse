@@ -532,16 +532,16 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
 
                 macro_rules! check_single_byte {
                     ($b:ident) => ({
-                        let is_b_token = is_token(b);
-                        if b == b' ' || b == b'\t' {
-                            trailing_whitespace += 1;
-                        } else if is_b_token {
-                            trailing_whitespace = 0;
-                        }
-                        if !is_b_token {
-                            if (b < 0o40 && b != 0o11) || b == 0o177 {
-                                break 'value;
+                        if is_token(b) {
+                            if b != b' ' {
+                                trailing_whitespace = 0;
+                            } else {
+                                trailing_whitespace += 1;
                             }
+                        } else if b == b'\t' {
+                            trailing_whitespace += 1;
+                        } else if b <= 0o177 {
+                            break 'value;
                         }
                     })
                 }
