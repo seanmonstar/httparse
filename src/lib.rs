@@ -33,11 +33,14 @@ macro_rules! next {
 
 macro_rules! expect {
     ($bytes:ident.next() == $pat:pat => $ret:expr) => {
-        match next!($bytes) {
+        expect!(next!($bytes) => $pat |? $ret)
+    };
+    ($e:expr => $pat:pat |? $ret:expr) => {
+        match $e {
             v@$pat => v,
             _ => return $ret
         }
-    }
+    };
 }
 
 macro_rules! complete {
@@ -378,19 +381,23 @@ pub const EMPTY_HEADER: Header<'static> = Header { name: "", value: b"" };
 
 #[inline]
 fn parse_version(bytes: &mut Bytes) -> Result<u8> {
-    expect!(bytes.next() == b'H' => Err(Error::Version));
-    expect!(bytes.next() == b'T' => Err(Error::Version));
-    expect!(bytes.next() == b'T' => Err(Error::Version));
-    expect!(bytes.next() == b'P' => Err(Error::Version));
-    expect!(bytes.next() == b'/' => Err(Error::Version));
-    expect!(bytes.next() == b'1' => Err(Error::Version));
-    expect!(bytes.next() == b'.' => Err(Error::Version));
-    let v = match next!(bytes) {
-        b'0' => 0,
-        b'1' => 1,
-        _ => return Err(Error::Version)
-    };
-    Ok(Status::Complete(v))
+    if let Some(mut eight) = bytes.next_8() {
+        expect!(eight._0() => b'H' |? Err(Error::Version));
+        expect!(eight._1() => b'T' |? Err(Error::Version));
+        expect!(eight._2() => b'T' |? Err(Error::Version));
+        expect!(eight._3() => b'P' |? Err(Error::Version));
+        expect!(eight._4() => b'/' |? Err(Error::Version));
+        expect!(eight._5() => b'1' |? Err(Error::Version));
+        expect!(eight._6() => b'.' |? Err(Error::Version));
+        let v = match eight._7() {
+            b'0' => 0,
+            b'1' => 1,
+            _ => return Err(Error::Version)
+        };
+        Ok(Status::Complete(v))
+    } else {
+        Ok(Status::Partial)
+    }
 }
 
 /// From [RFC 7230](https://tools.ietf.org/html/rfc7230):
