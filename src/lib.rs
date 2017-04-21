@@ -15,10 +15,12 @@
 //! intrinsic, and simd, are stabilized in rustc.
 
 #[cfg(feature = "std")] extern crate std as core;
+extern crate unicase;
 
 use core::{fmt, result, str, slice};
-
 use iter::Bytes;
+
+use unicase::UniCase;
 
 mod iter;
 
@@ -252,6 +254,24 @@ impl<'h, 'b> Request<'h, 'b> {
         }
     }
 
+    /// Extract header value using key. If not found or can't be converted to &str then None else the &str value.
+    pub fn header(&self, key: &str) -> Option<&str> {
+        let value: &str;
+
+        for h in self.headers.iter() {
+            if UniCase(h.name) == UniCase(key) {
+                value = str::from_utf8(h.value).unwrap_or("");
+                if value.is_empty() {
+                    return None;
+                } else {
+                    return Some(value);
+                }
+            }
+        }
+
+        None
+    }
+
     /// Try to parse a buffer of bytes into the Request.
     pub fn parse(&mut self, buf: &'b [u8]) -> Result<usize> {
         let orig_len = buf.len();
@@ -347,7 +367,6 @@ impl<'h, 'b> Response<'h, 'b> {
             b'\n' => self.reason = Some(""),
             _ => return Err(Error::Status),
         }
-
 
         let len = orig_len - bytes.len();
         let headers_len = complete!(parse_headers_iter(&mut self.headers, &mut bytes));

@@ -7,6 +7,9 @@ license = "MIT/Apache-2.0"
 description = "A tiny, safe, speedy, zero-copy HTTP/1.x parser."
 repository = "https://github.com/seanmonstar/httparse"
 
+[dependencies]
+unicase = "1"
+
 [features]
 default = ["std"]
 std = []
