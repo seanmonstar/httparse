@@ -535,6 +535,7 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
             }
 
             let mut b;
+            let mut trailing_whitespace : usize = 0;
 
             'value: loop {
 
@@ -557,16 +558,26 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
 
                 // parse value till EOL
 
-
+                macro_rules! check_single_byte {
+                    ($b:ident) => ({
+                        if is_token(b) {
+                            if b != b' ' {
+                                trailing_whitespace = 0;
+                            } else {
+                                trailing_whitespace += 1;
+                            }
+                        } else if b == b'\t' {
+                            trailing_whitespace += 1;
+                        } else if b <= 0o177 {
+                            break 'value;
+                        }
+                    })
+                }
 
                 macro_rules! check {
                     ($bytes:ident, $i:ident) => ({
                         b = $bytes.$i();
-                        if !is_token(b) {
-                            if (b < 0o40 && b != 0o11) || b == 0o177 {
-                                break 'value;
-                            }
-                        }
+                        check_single_byte!(b);
                     });
                     ($bytes:ident) => ({
                         check!($bytes, _0);
@@ -584,11 +595,7 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
                 }
                 loop {
                     b = next!(bytes);
-                    if !is_token(b) {
-                        if (b < 0o40 && b != 0o11) || b == 0o177 {
-                            break 'value;
-                        }
-                    }
+                    check_single_byte!(b);
                 }
             }
 
@@ -596,10 +603,10 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
             if b == b'\r' {
                 expect!(bytes.next() == b'\n' => Err(Error::HeaderValue));
                 count += bytes.pos();
-                header.value = bytes.slice_skip(2);
+                header.value = bytes.slice_skip(2 + trailing_whitespace);
             } else if b == b'\n' {
                 count += bytes.pos();
-                header.value = bytes.slice_skip(1);
+                header.value = bytes.slice_skip(1 + trailing_whitespace);
             } else {
                 return Err(Error::HeaderValue);
             }
@@ -774,6 +781,19 @@ mod tests {
         }
     }
 
+    req! {
+        test_field_value_trailing_whitespace,
+        b"GET / HTTP/1.1\r\nHost: foo.com \t \r\nA: a b \t\r\n\r\n",
+        |req| {
+            assert_eq!(req.method.unwrap(), "GET");
+            assert_eq!(req.path.unwrap(), "/");
+            assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers[0].name, "Host");
+            assert_eq!(req.headers[0].value, b"foo.com");
+            assert_eq!(req.headers[1].name, "A");
+            assert_eq!(req.headers[1].value, b"a b");
+        }
+    }
 
     req! {
         test_request_partial,
