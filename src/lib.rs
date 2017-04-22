@@ -171,7 +171,7 @@ pub enum Status<T> {
     /// The completed result.
     Complete(T),
     /// A partial result.
-    Partial
+    Partial,
 }
 
 impl<T> Status<T> {
@@ -355,13 +355,62 @@ impl<'h, 'b> Response<'h, 'b> {
     }
 }
 
+/// Helper struct to handle name field of the `Header` struct.
+#[derive(Copy, Clone, Debug)]
+pub struct Str<'a>(&'a [u8]);
+
+impl<'a> Str<'a> {
+    /// Return the internal slice.
+    pub fn get(&self) -> &[u8] {
+        self.0
+    }
+}
+
+impl<'a> PartialEq<str> for Str<'a> {
+    fn eq(&self, other: &str) -> bool {
+        let bytes = other.bytes();
+        bytes.len() == self.0.len() && self.0.iter().zip(bytes).all(|(a, b)| *a == b)
+    }
+}
+
+impl<'a> PartialEq<&'a str> for Str<'a> {
+    fn eq(&self, other: &&'a str) -> bool {
+        let bytes = other.bytes();
+        bytes.len() == self.0.len() && self.0.iter().zip(bytes).all(|(a, b)| *a == b)
+    }
+}
+
+impl<'a> PartialEq<[u8]> for Str<'a> {
+    fn eq(&self, other: &[u8]) -> bool {
+        other.len() == self.0.len() && self.0.iter().zip(other.iter()).all(|(a, b)| a == b)
+    }
+}
+
+impl<'a> PartialEq<Str<'a>> for Str<'a> {
+    fn eq(&self, other: &Str) -> bool {
+        self == other.0
+    }
+}
+
+impl<'a> From<&'a [u8]> for Str<'a> {
+    fn from(t: &'a [u8]) -> Str {
+        Str(t)
+    }
+}
+
+impl<'a> From<&'a str> for Str<'a> {
+    fn from(t: &'a str) -> Str {
+        Str(t.as_bytes())
+    }
+}
+
 /// Represents a parsed header.
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Header<'a> {
     /// The name portion of a header.
     ///
     /// A header name must be valid ASCII-US, so it's safe to store as a `&str`.
-    pub name: &'a str,
+    pub name: Str<'a>,
     /// The value portion of a header.
     ///
     /// While headers **should** be ASCII-US, the specification allows for
@@ -377,7 +426,7 @@ pub struct Header<'a> {
 /// ```
 /// let headers = [httparse::EMPTY_HEADER; 64];
 /// ```
-pub const EMPTY_HEADER: Header<'static> = Header { name: "", value: b"" };
+pub const EMPTY_HEADER: Header<'static> = Header { name: Str(b"" as &[u8]), value: b"" };
 
 #[inline]
 fn parse_version(bytes: &mut Bytes) -> Result<u8> {
@@ -479,8 +528,8 @@ fn parse_code(bytes: &mut Bytes) -> Result<u16> {
 /// let mut headers = [httparse::EMPTY_HEADER; 4];
 /// assert_eq!(httparse::parse_headers(buf, &mut headers),
 ///            Ok(httparse::Status::Complete((27, &[
-///                httparse::Header { name: "Host", value: b"foo.bar" },
-///                httparse::Header { name: "Accept", value: b"*/*" }
+///                httparse::Header { name: From::from("Host"), value: b"foo.bar" },
+///                httparse::Header { name: From::from("Accept"), value: b"*/*" }
 ///            ][..]))));
 /// ```
 pub fn parse_headers<'b: 'h, 'h>(src: &'b [u8], mut dst: &'h mut [Header<'b>])
@@ -525,9 +574,7 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
                 let b = next!(bytes);
                 if b == b':' {
                     count += bytes.pos();
-                    header.name = unsafe {
-                        str::from_utf8_unchecked(bytes.slice_skip(1))
-                    };
+                    header.name = From::from(bytes.slice_skip(1));
                     break;
                 } else if !is_token(b) {
                     return Err(Error::HeaderName);
