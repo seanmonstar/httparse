@@ -229,6 +229,7 @@ impl<T> Status<T> {
 ///     }
 /// }
 /// ```
+#[derive(Debug, PartialEq)]
 pub struct Request<'headers, 'buf: 'headers> {
     /// The request method, such as `GET`.
     pub method: Option<&'buf str>,
@@ -293,6 +294,7 @@ fn skip_empty_lines(bytes: &mut Bytes) -> Result<()> {
 /// A parsed Response.
 ///
 /// See `Request` docs for explanation of optional values.
+#[derive(Debug, PartialEq)]
 pub struct Response<'headers, 'buf: 'headers> {
     /// The response version, such as `HTTP/1.1`.
     pub version: Option<u8>,
