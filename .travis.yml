@@ -28,6 +28,8 @@ addons:
       - libcurl4-openssl-dev
       - libelf-dev
       - libdw-dev
+      - binutils-dev
+      - libiberty-dev
 
 after_success:
   - '[ $TRAVIS_RUST_VERSION = stable ] &&
