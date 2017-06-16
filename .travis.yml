@@ -5,9 +5,22 @@ matrix:
     fast_finish: true
     include:
         - rust: nightly
+          env: FEATURES="--no-default-features"
+        - rust: nightly
+          env: FEATURES=""
+
         - rust: beta
+          env: FEATURES="--no-default-features"
+        - rust: beta
+          env: FEATURES=""
+
         - rust: stable
+          env: FEATURES="--no-default-features"
+        - rust: stable
+          env: FEATURES=""
+
         - rust: 1.0.0
+          env: FEATURES=""
 
 cache:
     apt: true
@@ -16,10 +29,8 @@ cache:
         - target/debug/build
 
 script:
-    - cargo build --no-default-features
-    - cargo test --no-default-features
-    - cargo build
-    - cargo test
+    - cargo build $FEATURES
+    - cargo test $FEATURES
 
 
 addons:
@@ -31,6 +42,7 @@ addons:
 
 after_success:
   - '[ $TRAVIS_RUST_VERSION = stable ] &&
+    [ "$FEATURES" = "" ] &&
     LOCAL="~/.local" && export PATH=$LOCAL/bin:$PATH &&
     wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
     tar xzf master.tar.gz && mkdir kcov-master/build && cd kcov-master/build &&
