@@ -6,6 +6,8 @@
 
 A push parser for the HTTP 1.x protocol. Avoids allocations. No copy. **Fast.**
 
+Works with `no_std`, simply disable the `std` Cargo feature.
+
 [Documentation](https://docs.rs/httparse)
 
 ## Usage

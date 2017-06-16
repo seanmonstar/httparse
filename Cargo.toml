@@ -6,6 +6,9 @@ authors = ["Sean McArthur <sean.monstar@gmail.com>"]
 license = "MIT/Apache-2.0"
 description = "A tiny, safe, speedy, zero-copy HTTP/1.x parser."
 repository = "https://github.com/seanmonstar/httparse"
+documentation = "https://docs.rs/httparse"
+keywords = ["http", "parser", "no_std"]
+categories = ["network-programming", "no-std", "parser-implementations", "web-programming"]
 
 [features]
 default = ["std"]
