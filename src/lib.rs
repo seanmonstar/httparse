@@ -448,10 +448,21 @@ fn parse_version(bytes: &mut Bytes) -> Result<u8> {
             b'1' => 1,
             _ => return Err(Error::Version)
         };
-        Ok(Status::Complete(v))
-    } else {
-        Ok(Status::Partial)
+        return Ok(Status::Complete(v))
     }
+
+    // else (but not in `else` because of borrow checker)
+
+    // If there aren't at least 8 bytes, we still want to detect early
+    // if this is a valid version or not. If it is, we'll return Partial.
+    expect!(bytes.next() == b'H' => Err(Error::Version));
+    expect!(bytes.next() == b'T' => Err(Error::Version));
+    expect!(bytes.next() == b'T' => Err(Error::Version));
+    expect!(bytes.next() == b'P' => Err(Error::Version));
+    expect!(bytes.next() == b'/' => Err(Error::Version));
+    expect!(bytes.next() == b'1' => Err(Error::Version));
+    expect!(bytes.next() == b'.' => Err(Error::Version));
+    Ok(Status::Partial)
 }
 
 /// From [RFC 7230](https://tools.ietf.org/html/rfc7230):
@@ -830,6 +841,12 @@ mod tests {
     }
 
     req! {
+        test_request_partial_version,
+        b"GET / HTTP/1.", Ok(Status::Partial),
+        |_req| {}
+    }
+
+    req! {
         test_request_newlines,
         b"GET / HTTP/1.1\nHost: foo.bar\n\n",
         |_r| {}
@@ -861,6 +878,14 @@ mod tests {
         test_request_with_invalid_token_delimiter,
         b"GET\n/ HTTP/1.1\r\nHost: foo.bar\r\n\r\n",
         Err(::Error::Token),
+        |_r| {}
+    }
+
+
+    req! {
+        test_request_with_invalid_but_short_version,
+        b"GET / HTTP/1!",
+        Err(::Error::Version),
         |_r| {}
     }
 
