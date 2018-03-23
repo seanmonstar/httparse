@@ -29,6 +29,14 @@ impl<'a> Bytes<'a> {
         self.pos += 1;
     }
 
+    #[cfg(feature = "nightly")]
+    #[allow(unused)]
+    #[inline]
+    pub fn advance(&mut self, n: usize) {
+        debug_assert!(self.pos + n <= self.slice.len(), "overflow");
+        self.pos += n;
+    }
+
     #[inline]
     pub fn len(&self) -> usize {
         self.slice.len()
@@ -60,6 +68,13 @@ impl<'a> Bytes<'a> {
         } else {
             None
         }
+    }
+}
+
+impl<'a> AsRef<[u8]> for Bytes<'a> {
+    #[inline]
+    fn as_ref(&self) -> &[u8] {
+        &self.slice[self.pos..]
     }
 }
 

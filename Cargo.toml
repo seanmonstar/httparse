@@ -13,6 +13,7 @@ categories = ["network-programming", "no-std", "parser-implementations", "web-pr
 [features]
 default = ["std"]
 std = []
+nightly = []
 
 [dev-dependencies]
 pico-sys = "0.0"

@@ -1,5 +1,6 @@
-#![cfg_attr(not(feature = "std"),  no_std)]
+#![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(test, deny(warnings))]
+#![cfg_attr(feature = "nightly", feature(cfg_target_feature, stdsimd))]
 #![deny(missing_docs)]
 //! # httparse
 //!
@@ -11,43 +12,15 @@
 //! skipping bounds checks.
 //!
 //! The speed is faster than picohttpparser, when SIMD is not available.
-#[cfg(feature = "std")] extern crate std as core;
+#[cfg(feature = "std")]
+extern crate std as core;
 
 use core::{fmt, result, str, slice};
 
 use iter::Bytes;
 
 mod iter;
-
-macro_rules! next {
-    ($bytes:ident) => ({
-        match $bytes.next() {
-            Some(b) => b,
-            None => return Ok(Status::Partial)
-        }
-    })
-}
-
-macro_rules! expect {
-    ($bytes:ident.next() == $pat:pat => $ret:expr) => {
-        expect!(next!($bytes) => $pat |? $ret)
-    };
-    ($e:expr => $pat:pat |? $ret:expr) => {
-        match $e {
-            v@$pat => v,
-            _ => return $ret
-        }
-    };
-}
-
-macro_rules! complete {
-    ($e:expr) => {
-        match try!($e) {
-            Status::Complete(v) => v,
-            Status::Partial => return Ok(Status::Partial)
-        }
-    }
-}
+#[macro_use] mod macros;
 
 #[inline]
 fn shrink<T>(slice: &mut &mut [T], len: usize) {
@@ -70,10 +43,33 @@ fn shrink<T>(slice: &mut &mut [T], len: usize) {
 fn is_token(b: u8) -> bool {
     b > 0x1F && b < 0x7F
 }
-macro_rules! byte_map {
-    ($($flag:expr,)*) => ([
-        $($flag != 0,)*
-    ])
+
+// ASCII codes to accept URI string.
+// i.e. A-Z a-z 0-9 !#$%&'*+-._();:@=,/?[]~
+// TODO: Make a stricter checking for URI string?
+static URI_MAP: [bool; 256] = byte_map![
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1,
+    0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0,
+    // ====== Extended ASCII (aka. obs-text) ======
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+];
+
+#[inline]
+fn is_uri_token(b: u8) -> bool {
+    URI_MAP[b as usize]
 }
 
 static HEADER_NAME_MAP: [bool; 256] = byte_map![
@@ -101,7 +97,7 @@ fn is_header_name_token(b: u8) -> bool {
 }
 
 static HEADER_VALUE_MAP: [bool; 256] = byte_map![
-    0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -123,29 +119,6 @@ static HEADER_VALUE_MAP: [bool; 256] = byte_map![
 #[inline]
 fn is_header_value_token(b: u8) -> bool {
     HEADER_VALUE_MAP[b as usize]
-}
-
-
-macro_rules! space {
-    ($bytes:ident or $err:expr) => ({
-        expect!($bytes.next() == b' ' => Err($err));
-        $bytes.slice();
-    })
-}
-
-macro_rules! newline {
-    ($bytes:ident) => ({
-        match next!($bytes) {
-            b'\r' => {
-                expect!($bytes.next() == b'\n' => Err(Error::NewLine));
-                $bytes.slice();
-            },
-            b'\n' => {
-                $bytes.slice();
-            },
-            _ => return Err(Error::NewLine)
-        }
-    })
 }
 
 /// An error in parsing.
@@ -311,7 +284,7 @@ impl<'h, 'b> Request<'h, 'b> {
         let mut bytes = Bytes::new(buf);
         complete!(skip_empty_lines(&mut bytes));
         self.method = Some(complete!(parse_token(&mut bytes)));
-        self.path = Some(complete!(parse_token(&mut bytes)));
+        self.path = Some(complete!(parse_uri(&mut bytes)));
         self.version = Some(complete!(parse_version(&mut bytes)));
         newline!(bytes);
 
@@ -520,14 +493,129 @@ fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
 }
 
 #[inline]
+fn parse_uri<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
+    #[cfg(feature = "nightly")]
+    #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2"))]
+    while bytes.as_ref().len() >= 32 {
+        let advance = match_url_char_32_avx(bytes.as_ref());
+        bytes.advance(advance);
+
+        if advance != 32 {
+            break;
+        }
+    }
+
+    #[cfg(feature = "nightly")]
+    #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse4.2"))]
+    while bytes.as_ref().len() >= 16 {
+        let advance = match_url_char_16_sse(bytes.as_ref());
+        bytes.advance(advance);
+
+        if advance != 16 {
+            break;
+        }
+    }
+
+    loop {
+        let b = next!(bytes);
+        if b == b' ' {
+            return Ok(Status::Complete(unsafe {
+                // all bytes up till `i` must have been `is_token`.
+                str::from_utf8_unchecked(bytes.slice_skip(1))
+            }));
+        } else if !is_uri_token(b) {
+            return Err(Error::Token);
+        }
+    }
+}
+
+#[cfg(feature = "nightly")]
+#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2"))]
+#[inline]
+fn match_url_char_32_avx(buf: &[u8]) -> usize {
+    debug_assert!(buf.len() >= 32);
+
+    #[cfg(target_arch = "x86")]
+    use core::arch::x86::*;
+    #[cfg(target_arch = "x86_64")]
+    use core::arch::x86_64::*;
+
+    let ptr = buf.as_ptr();
+
+    #[allow(non_snake_case, overflowing_literals)]
+        unsafe {
+        let LSH: __m256i = _mm256_set1_epi8(0x0f);
+        let URI: __m256i = _mm256_setr_epi8(
+            0xb8, 0xfc, 0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
+            0xfc, 0xfc, 0xfc, 0x7c, 0x54, 0x7c, 0xd4, 0x7c,
+            0xb8, 0xfc, 0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
+            0xfc, 0xfc, 0xfc, 0x7c, 0x54, 0x7c, 0xd4, 0x7c,
+        );
+        let ARF: __m256i = _mm256_setr_epi8(
+            0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        );
+
+        let data = _mm256_lddqu_si256(ptr as *const _);
+        let rbms = _mm256_shuffle_epi8(URI, data);
+        let cols = _mm256_and_si256(LSH, _mm256_srli_epi16(data, 4));
+        let bits = _mm256_and_si256(_mm256_shuffle_epi8(ARF, cols), rbms);
+
+        let v = _mm256_cmpeq_epi8(bits, _mm256_setzero_si256());
+        let r = 0xffffffff_00000000 | _mm256_movemask_epi8(v) as u64;
+
+        _tzcnt_u64(r) as usize
+    }
+}
+
+#[cfg(feature = "nightly")]
+#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse4.2"))]
+#[inline]
+fn match_url_char_16_sse(buf: &[u8]) -> usize {
+    debug_assert!(buf.len() >= 16);
+
+    #[cfg(target_arch = "x86")]
+    use core::arch::x86::*;
+    #[cfg(target_arch = "x86_64")]
+    use core::arch::x86_64::*;
+
+    let ptr = buf.as_ptr();
+
+    #[allow(non_snake_case, overflowing_literals)]
+    unsafe {
+        let LSH: __m128i = _mm_set1_epi8(0x0f);
+        let URI: __m128i = _mm_setr_epi8(
+            0xb8, 0xfc, 0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
+            0xfc, 0xfc, 0xfc, 0x7c, 0x54, 0x7c, 0xd4, 0x7c,
+        );
+        let ARF: __m128i = _mm_setr_epi8(
+            0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        );
+
+        let data = _mm_lddqu_si128(ptr as *const _);
+        let rbms = _mm_shuffle_epi8(URI, data);
+        let cols = _mm_and_si128(LSH, _mm_srli_epi16(data, 4));
+        let bits = _mm_and_si128(_mm_shuffle_epi8(ARF, cols), rbms);
+
+        let v = _mm_cmpeq_epi8(bits, _mm_setzero_si128());
+        let r = 0xffff_0000 | _mm_movemask_epi8(v) as u32;
+
+        _tzcnt_u32(r) as usize
+    }
+}
+
+#[inline]
 fn parse_code(bytes: &mut Bytes) -> Result<u16> {
     let hundreds = expect!(bytes.next() == b'0'...b'9' => Err(Error::Status));
     let tens = expect!(bytes.next() == b'0'...b'9' => Err(Error::Status));
     let ones = expect!(bytes.next() == b'0'...b'9' => Err(Error::Status));
 
     Ok(Status::Complete((hundreds - b'0') as u16 * 100 +
-                        (tens - b'0') as u16 * 10 +
-                        (ones - b'0') as u16))
+        (tens - b'0') as u16 * 10 +
+        (ones - b'0') as u16))
 }
 
 /// Parse a buffer of bytes as headers.
@@ -553,6 +641,70 @@ pub fn parse_headers<'b: 'h, 'h>(src: &'b [u8], mut dst: &'h mut [Header<'b>])
     let mut iter = Bytes::new(src);
     let pos = complete!(parse_headers_iter(&mut dst, &mut iter));
     Ok(Status::Complete((pos, dst)))
+}
+
+#[cfg(feature = "nightly")]
+#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse4.2"))]
+#[inline]
+fn match_header_value_char_16_sse(buf: &[u8]) -> usize {
+    debug_assert!(buf.len() >= 16);
+
+    #[cfg(target_arch = "x86")]
+    use core::arch::x86::*;
+    #[cfg(target_arch = "x86_64")]
+    use core::arch::x86_64::*;
+
+    let ptr = buf.as_ptr();
+
+    #[allow(non_snake_case)]
+        unsafe {
+        // %x09 %x20-%x7e %x80-%xff
+        let TAB: __m128i = _mm_set1_epi8(0x09);
+        let DEL: __m128i = _mm_set1_epi8(0x7f);
+        let LOW: __m128i = _mm_set1_epi8(0x1f);
+
+        let dat = _mm_lddqu_si128(ptr as *const _);
+        let low = _mm_cmpgt_epi8(dat, LOW);
+        let tab = _mm_cmpeq_epi8(dat, TAB);
+        let del = _mm_cmpeq_epi8(dat, DEL);
+        let bit = _mm_andnot_si128(del, _mm_or_si128(low, tab));
+        let rev = _mm_cmpeq_epi8(bit, _mm_setzero_si128());
+        let res = 0xffff_0000 | _mm_movemask_epi8(rev) as u32;
+
+        _tzcnt_u32(res) as usize
+    }
+}
+
+#[cfg(feature = "nightly")]
+#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2"))]
+#[inline]
+fn match_header_value_char_32_avx(buf: &[u8]) -> usize {
+    debug_assert!(buf.len() >= 32);
+
+    #[cfg(target_arch = "x86")]
+    use core::arch::x86::*;
+    #[cfg(target_arch = "x86_64")]
+    use core::arch::x86_64::*;
+
+    let ptr = buf.as_ptr();
+
+    #[allow(non_snake_case)]
+    unsafe {
+        // %x09 %x20-%x7e %x80-%xff
+        let TAB: __m256i = _mm256_set1_epi8(0x09);
+        let DEL: __m256i = _mm256_set1_epi8(0x7f);
+        let LOW: __m256i = _mm256_set1_epi8(0x1f);
+
+        let dat = _mm256_lddqu_si256(ptr as *const _);
+        let low = _mm256_cmpgt_epi8(dat, LOW);
+        let tab = _mm256_cmpeq_epi8(dat, TAB);
+        let del = _mm256_cmpeq_epi8(dat, DEL);
+        let bit = _mm256_andnot_si256(del, _mm256_or_si256(low, tab));
+        let rev = _mm256_cmpeq_epi8(bit, _mm256_setzero_si256());
+        let res = 0xffffffff_00000000 | _mm256_movemask_epi8(rev) as u64;
+
+        _tzcnt_u64(res) as usize
+    }
 }
 
 #[inline]
@@ -620,7 +772,30 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
 
                 // parse value till EOL
 
+                #[cfg(feature = "nightly")]
+                #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2"))]
+                {
+                    'batch32: while bytes.as_ref().len() >= 32 {
+                        let advance = match_header_value_char_32_avx(bytes.as_ref());
+                        bytes.advance(advance);
 
+                       if advance != 32 {
+                            break 'batch32;
+                       }
+                    }
+                }
+                #[cfg(feature = "nightly")]
+                #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse4.2"))]
+                {
+                    'batch16: while bytes.as_ref().len() >= 16 {
+                        let advance = match_header_value_char_16_sse(bytes.as_ref());
+                        bytes.advance(advance);
+
+                       if advance != 16 {
+                            break 'batch16;
+                       }
+                    }
+                }
 
                 macro_rules! check {
                     ($bytes:ident, $i:ident) => ({
@@ -662,7 +837,6 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
             } else {
                 return Err(Error::HeaderValue);
             }
-
         }
     } // drop iter
 
@@ -683,7 +857,7 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
 ///            Ok(httparse::Status::Complete((3, 4))));
 /// ```
 pub fn parse_chunk_size(buf: &[u8])
-        -> result::Result<Status<(usize, u64)>, InvalidChunkSize> {
+    -> result::Result<Status<(usize, u64)>, InvalidChunkSize> {
     const RADIX: u64 = 16;
     let mut bytes = Bytes::new(buf);
     let mut size = 0;
@@ -693,7 +867,7 @@ pub fn parse_chunk_size(buf: &[u8])
     loop {
         let b = next!(bytes);
         match b {
-            b'0'...b'9' if in_chunk_size => {
+            b'0' ... b'9' if in_chunk_size => {
                 if count > 15 {
                     return Err(InvalidChunkSize);
                 }
@@ -701,7 +875,7 @@ pub fn parse_chunk_size(buf: &[u8])
                 size *= RADIX;
                 size += (b - b'0') as u64;
             },
-            b'a'...b'f' if in_chunk_size => {
+            b'a' ... b'f' if in_chunk_size => {
                 if count > 15 {
                     return Err(InvalidChunkSize);
                 }
@@ -709,7 +883,7 @@ pub fn parse_chunk_size(buf: &[u8])
                 size *= RADIX;
                 size += (b + 10 - b'a') as u64;
             }
-            b'A'...b'F' if in_chunk_size => {
+            b'A' ... b'F' if in_chunk_size => {
                 if count > 15 {
                     return Err(InvalidChunkSize);
                 }
