@@ -10,45 +10,15 @@ rust:
 
 env:
     - CARGO_CFG_HTTPARSE_DISABLE_SIMD=1
-    - MATRIX_WHATEVER=1
+    - CARGO_CFG_HTTPARSE_DISABLE_SIMD_COMPILETIME=1
+    -
 
 matrix:
     fast_finish: true
 
-cache:
-    apt: true
-    directories:
-        - target/debug/deps
-        - target/debug/build
-
 script:
     - cargo build --no-default-features
-    - cargo test --no-default-features
+    - 'if [ "$TRAVIS_RUST_VERSION" != "1.10.0" ]; then cargo test --no-default-features; fi'
     - cargo build
-    - cargo test
+    - 'if [ "$TRAVIS_RUST_VERSION" != "1.10.0" ]; then cargo test; fi'
 
-
-addons:
-  apt:
-    packages:
-      - libcurl4-openssl-dev
-      - libelf-dev
-      - libdw-dev
-      - binutils-dev
-      - libiberty-dev
-
-after_success:
-  - '[ $TRAVIS_RUST_VERSION = stable ] &&
-    LOCAL="~/.local" && export PATH=$LOCAL/bin:$PATH &&
-    wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
-    tar xzf master.tar.gz && mkdir kcov-master/build && cd kcov-master/build &&
-    cmake -DCMAKE_INSTALL_PREFIX:PATH=$LOCAL .. && make && make install && cd ../.. &&
-    ls target/debug &&
-    RUSTFLAGS="-C link-dead-code" cargo test --no-run &&
-    for file in target/debug/httparse-*; do
-      if [[ "${file: -2}" != ".d" ]]; then
-        mkdir -p "target/cov/$(basename $file)";
-        kcov --exclude-pattern=/.cargo,/usr/lib --verify "target/cov/$(basename $file)" "$file";
-      fi;
-    done &&
-    kcov --coveralls-id=$TRAVIS_JOB_ID --merge target/cov target/cov/*'
