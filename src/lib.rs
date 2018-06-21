@@ -1,6 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(test, deny(warnings))]
-#![cfg_attr(feature = "nightly", feature(cfg_target_feature, stdsimd))]
 #![deny(missing_docs)]
 //! # httparse
 //!
@@ -494,27 +493,8 @@ fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
 
 #[inline]
 fn parse_uri<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
-    #[cfg(feature = "nightly")]
-    #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2"))]
-    while bytes.as_ref().len() >= 32 {
-        let advance = match_url_char_32_avx(bytes.as_ref());
-        bytes.advance(advance);
-
-        if advance != 32 {
-            break;
-        }
-    }
-
-    #[cfg(feature = "nightly")]
-    #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse4.2"))]
-    while bytes.as_ref().len() >= 16 {
-        let advance = match_url_char_16_sse(bytes.as_ref());
-        bytes.advance(advance);
-
-        if advance != 16 {
-            break;
-        }
-    }
+    parse_uri_batch_32(bytes);
+    parse_uri_batch_16(bytes);
 
     loop {
         let b = next!(bytes);
@@ -529,7 +509,42 @@ fn parse_uri<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
     }
 }
 
-#[cfg(feature = "nightly")]
+#[cfg(feature = "httparse_simd")]
+#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2"))]
+fn parse_uri_batch_32<'a>(bytes: &mut Bytes<'a>) {
+    while bytes.as_ref().len() >= 32 {
+        let advance = match_url_char_32_avx(bytes.as_ref());
+        bytes.advance(advance);
+
+        if advance != 32 {
+            break;
+        }
+    }
+}
+
+#[cfg(not(feature = "httparse_simd"))]
+#[cfg(not(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2")))]
+fn parse_uri_batch_32<'a>(_: &mut Bytes<'a>) {}
+
+#[cfg(feature = "httparse_simd")]
+#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse4.2"))]
+fn parse_uri_batch_16<'a>(bytes: &mut Bytes<'a>) {
+    while bytes.as_ref().len() >= 16 {
+        let advance = match_url_char_16_sse(bytes.as_ref());
+        bytes.advance(advance);
+
+        if advance != 16 {
+            break;
+        }
+    }
+}
+
+#[cfg(not(feature = "httparse_simd"))]
+#[cfg(not(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse4.2")))]
+fn parse_uri_batch_16<'a>(_: &mut Bytes<'a>) {}
+
+
+#[cfg(feature = "httparse_simd")]
 #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2"))]
 #[inline]
 fn match_url_char_32_avx(buf: &[u8]) -> usize {
@@ -570,7 +585,7 @@ fn match_url_char_32_avx(buf: &[u8]) -> usize {
     }
 }
 
-#[cfg(feature = "nightly")]
+#[cfg(feature = "httparse_simd")]
 #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse4.2"))]
 #[inline]
 fn match_url_char_16_sse(buf: &[u8]) -> usize {
@@ -643,7 +658,41 @@ pub fn parse_headers<'b: 'h, 'h>(src: &'b [u8], mut dst: &'h mut [Header<'b>])
     Ok(Status::Complete((pos, dst)))
 }
 
-#[cfg(feature = "nightly")]
+#[cfg(feature = "httparse_simd")]
+#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2"))]
+fn match_header_value_batch_32(bytes: &mut Bytes) {
+    while bytes.as_ref().len() >= 32 {
+        let advance = match_header_value_char_32_avx(bytes.as_ref());
+        bytes.advance(advance);
+
+        if advance != 32 {
+            break;
+        }
+    }
+}
+
+#[cfg(not(feature = "httparse_simd"))]
+#[cfg(not(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2")))]
+fn match_header_value_batch_32(_: &mut Bytes) {}
+
+#[cfg(feature = "httparse_simd")]
+#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse4.2"))]
+fn match_header_value_batch_16(bytes: &mut Bytes) {
+    while bytes.as_ref().len() >= 16 {
+        let advance = match_header_value_char_16_sse(bytes.as_ref());
+        bytes.advance(advance);
+
+       if advance != 16 {
+            break;
+       }
+    }
+}
+
+#[cfg(not(feature = "httparse_simd"))]
+#[cfg(not(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse4.2")))]
+fn match_header_value_batch_16(_: &mut Bytes) {}
+
+#[cfg(feature = "httparse_simd")]
 #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse4.2"))]
 #[inline]
 fn match_header_value_char_16_sse(buf: &[u8]) -> usize {
@@ -657,7 +706,7 @@ fn match_header_value_char_16_sse(buf: &[u8]) -> usize {
     let ptr = buf.as_ptr();
 
     #[allow(non_snake_case)]
-        unsafe {
+    unsafe {
         // %x09 %x20-%x7e %x80-%xff
         let TAB: __m128i = _mm_set1_epi8(0x09);
         let DEL: __m128i = _mm_set1_epi8(0x7f);
@@ -675,7 +724,7 @@ fn match_header_value_char_16_sse(buf: &[u8]) -> usize {
     }
 }
 
-#[cfg(feature = "nightly")]
+#[cfg(feature = "httparse_simd")]
 #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2"))]
 #[inline]
 fn match_header_value_char_32_avx(buf: &[u8]) -> usize {
@@ -772,7 +821,10 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
 
                 // parse value till EOL
 
-                #[cfg(feature = "nightly")]
+                match_header_value_batch_32(bytes);
+                match_header_value_batch_16(bytes);
+
+                #[cfg(feature = "httparse_simd")]
                 #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2"))]
                 {
                     'batch32: while bytes.as_ref().len() >= 32 {
@@ -784,7 +836,7 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
                        }
                     }
                 }
-                #[cfg(feature = "nightly")]
+                #[cfg(feature = "httparse_simd")]
                 #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse4.2"))]
                 {
                     'batch16: while bytes.as_ref().len() >= 16 {
