@@ -1,4 +1,4 @@
-use ::Bytes;
+use ::iter::Bytes;
 
 pub unsafe fn parse_uri_batch_32<'a>(bytes: &mut Bytes<'a>) {
     while bytes.as_ref().len() >= 32 {

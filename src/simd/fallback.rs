@@ -1,4 +1,4 @@
-use ::Bytes;
+use ::iter::Bytes;
 
 // Fallbacks that do nothing...
 
