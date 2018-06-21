@@ -46,7 +46,7 @@ fn enable_simd(version: Version) {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 struct Version {
     major: u32,
     minor: u32,

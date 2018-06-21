@@ -1,5 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(test, deny(warnings))]
+//#![cfg_attr(test, deny(warnings))]
 #![deny(missing_docs)]
 //! # httparse
 //!
@@ -20,6 +20,7 @@ use iter::Bytes;
 
 mod iter;
 #[macro_use] mod macros;
+mod simd;
 
 #[inline]
 fn shrink<T>(slice: &mut &mut [T], len: usize) {
@@ -300,11 +301,13 @@ fn skip_empty_lines(bytes: &mut Bytes) -> Result<()> {
         let b = bytes.peek();
         match b {
             Some(b'\r') => {
-                bytes.bump();
+                // there's `\r`, so it's safe to bump 1 pos
+                unsafe { bytes.bump() };
                 expect!(bytes.next() == b'\n' => Err(Error::NewLine));
             },
             Some(b'\n') => {
-                bytes.bump();
+                // there's `\n`, so it's safe to bump 1 pos
+                unsafe { bytes.bump(); }
             },
             Some(..) => {
                 bytes.slice();
@@ -493,8 +496,7 @@ fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
 
 #[inline]
 fn parse_uri<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
-    parse_uri_batch_32(bytes);
-    parse_uri_batch_16(bytes);
+    simd::match_uri_vectored(bytes);
 
     loop {
         let b = next!(bytes);
@@ -509,118 +511,6 @@ fn parse_uri<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
     }
 }
 
-#[cfg(feature = "httparse_simd")]
-#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2"))]
-fn parse_uri_batch_32<'a>(bytes: &mut Bytes<'a>) {
-    while bytes.as_ref().len() >= 32 {
-        let advance = match_url_char_32_avx(bytes.as_ref());
-        bytes.advance(advance);
-
-        if advance != 32 {
-            break;
-        }
-    }
-}
-
-#[cfg(not(feature = "httparse_simd"))]
-#[cfg(not(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2")))]
-fn parse_uri_batch_32<'a>(_: &mut Bytes<'a>) {}
-
-#[cfg(feature = "httparse_simd")]
-#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse4.2"))]
-fn parse_uri_batch_16<'a>(bytes: &mut Bytes<'a>) {
-    while bytes.as_ref().len() >= 16 {
-        let advance = match_url_char_16_sse(bytes.as_ref());
-        bytes.advance(advance);
-
-        if advance != 16 {
-            break;
-        }
-    }
-}
-
-#[cfg(not(feature = "httparse_simd"))]
-#[cfg(not(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse4.2")))]
-fn parse_uri_batch_16<'a>(_: &mut Bytes<'a>) {}
-
-
-#[cfg(feature = "httparse_simd")]
-#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2"))]
-#[inline]
-fn match_url_char_32_avx(buf: &[u8]) -> usize {
-    debug_assert!(buf.len() >= 32);
-
-    #[cfg(target_arch = "x86")]
-    use core::arch::x86::*;
-    #[cfg(target_arch = "x86_64")]
-    use core::arch::x86_64::*;
-
-    let ptr = buf.as_ptr();
-
-    #[allow(non_snake_case, overflowing_literals)]
-        unsafe {
-        let LSH: __m256i = _mm256_set1_epi8(0x0f);
-        let URI: __m256i = _mm256_setr_epi8(
-            0xb8, 0xfc, 0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
-            0xfc, 0xfc, 0xfc, 0x7c, 0x54, 0x7c, 0xd4, 0x7c,
-            0xb8, 0xfc, 0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
-            0xfc, 0xfc, 0xfc, 0x7c, 0x54, 0x7c, 0xd4, 0x7c,
-        );
-        let ARF: __m256i = _mm256_setr_epi8(
-            0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        );
-
-        let data = _mm256_lddqu_si256(ptr as *const _);
-        let rbms = _mm256_shuffle_epi8(URI, data);
-        let cols = _mm256_and_si256(LSH, _mm256_srli_epi16(data, 4));
-        let bits = _mm256_and_si256(_mm256_shuffle_epi8(ARF, cols), rbms);
-
-        let v = _mm256_cmpeq_epi8(bits, _mm256_setzero_si256());
-        let r = 0xffffffff_00000000 | _mm256_movemask_epi8(v) as u64;
-
-        _tzcnt_u64(r) as usize
-    }
-}
-
-#[cfg(feature = "httparse_simd")]
-#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse4.2"))]
-#[inline]
-fn match_url_char_16_sse(buf: &[u8]) -> usize {
-    debug_assert!(buf.len() >= 16);
-
-    #[cfg(target_arch = "x86")]
-    use core::arch::x86::*;
-    #[cfg(target_arch = "x86_64")]
-    use core::arch::x86_64::*;
-
-    let ptr = buf.as_ptr();
-
-    #[allow(non_snake_case, overflowing_literals)]
-    unsafe {
-        let LSH: __m128i = _mm_set1_epi8(0x0f);
-        let URI: __m128i = _mm_setr_epi8(
-            0xb8, 0xfc, 0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
-            0xfc, 0xfc, 0xfc, 0x7c, 0x54, 0x7c, 0xd4, 0x7c,
-        );
-        let ARF: __m128i = _mm_setr_epi8(
-            0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        );
-
-        let data = _mm_lddqu_si128(ptr as *const _);
-        let rbms = _mm_shuffle_epi8(URI, data);
-        let cols = _mm_and_si128(LSH, _mm_srli_epi16(data, 4));
-        let bits = _mm_and_si128(_mm_shuffle_epi8(ARF, cols), rbms);
-
-        let v = _mm_cmpeq_epi8(bits, _mm_setzero_si128());
-        let r = 0xffff_0000 | _mm_movemask_epi8(v) as u32;
-
-        _tzcnt_u32(r) as usize
-    }
-}
 
 #[inline]
 fn parse_code(bytes: &mut Bytes) -> Result<u16> {
@@ -658,103 +548,15 @@ pub fn parse_headers<'b: 'h, 'h>(src: &'b [u8], mut dst: &'h mut [Header<'b>])
     Ok(Status::Complete((pos, dst)))
 }
 
-#[cfg(feature = "httparse_simd")]
-#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2"))]
-fn match_header_value_batch_32(bytes: &mut Bytes) {
-    while bytes.as_ref().len() >= 32 {
-        let advance = match_header_value_char_32_avx(bytes.as_ref());
-        bytes.advance(advance);
+/*
+#[cfg(not(any(
+    feature = "httparse_simd",
+    target_arch = "x86",
+    target_arch = "x86_64",
+    target_feature = "sse4.2"
+)))]
+*/
 
-        if advance != 32 {
-            break;
-        }
-    }
-}
-
-#[cfg(not(feature = "httparse_simd"))]
-#[cfg(not(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2")))]
-fn match_header_value_batch_32(_: &mut Bytes) {}
-
-#[cfg(feature = "httparse_simd")]
-#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse4.2"))]
-fn match_header_value_batch_16(bytes: &mut Bytes) {
-    while bytes.as_ref().len() >= 16 {
-        let advance = match_header_value_char_16_sse(bytes.as_ref());
-        bytes.advance(advance);
-
-       if advance != 16 {
-            break;
-       }
-    }
-}
-
-#[cfg(not(feature = "httparse_simd"))]
-#[cfg(not(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse4.2")))]
-fn match_header_value_batch_16(_: &mut Bytes) {}
-
-#[cfg(feature = "httparse_simd")]
-#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse4.2"))]
-#[inline]
-fn match_header_value_char_16_sse(buf: &[u8]) -> usize {
-    debug_assert!(buf.len() >= 16);
-
-    #[cfg(target_arch = "x86")]
-    use core::arch::x86::*;
-    #[cfg(target_arch = "x86_64")]
-    use core::arch::x86_64::*;
-
-    let ptr = buf.as_ptr();
-
-    #[allow(non_snake_case)]
-    unsafe {
-        // %x09 %x20-%x7e %x80-%xff
-        let TAB: __m128i = _mm_set1_epi8(0x09);
-        let DEL: __m128i = _mm_set1_epi8(0x7f);
-        let LOW: __m128i = _mm_set1_epi8(0x1f);
-
-        let dat = _mm_lddqu_si128(ptr as *const _);
-        let low = _mm_cmpgt_epi8(dat, LOW);
-        let tab = _mm_cmpeq_epi8(dat, TAB);
-        let del = _mm_cmpeq_epi8(dat, DEL);
-        let bit = _mm_andnot_si128(del, _mm_or_si128(low, tab));
-        let rev = _mm_cmpeq_epi8(bit, _mm_setzero_si128());
-        let res = 0xffff_0000 | _mm_movemask_epi8(rev) as u32;
-
-        _tzcnt_u32(res) as usize
-    }
-}
-
-#[cfg(feature = "httparse_simd")]
-#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2"))]
-#[inline]
-fn match_header_value_char_32_avx(buf: &[u8]) -> usize {
-    debug_assert!(buf.len() >= 32);
-
-    #[cfg(target_arch = "x86")]
-    use core::arch::x86::*;
-    #[cfg(target_arch = "x86_64")]
-    use core::arch::x86_64::*;
-
-    let ptr = buf.as_ptr();
-
-    #[allow(non_snake_case)]
-    unsafe {
-        // %x09 %x20-%x7e %x80-%xff
-        let TAB: __m256i = _mm256_set1_epi8(0x09);
-        let DEL: __m256i = _mm256_set1_epi8(0x7f);
-        let LOW: __m256i = _mm256_set1_epi8(0x1f);
-
-        let dat = _mm256_lddqu_si256(ptr as *const _);
-        let low = _mm256_cmpgt_epi8(dat, LOW);
-        let tab = _mm256_cmpeq_epi8(dat, TAB);
-        let del = _mm256_cmpeq_epi8(dat, DEL);
-        let bit = _mm256_andnot_si256(del, _mm256_or_si256(low, tab));
-        let rev = _mm256_cmpeq_epi8(bit, _mm256_setzero_si256());
-        let res = 0xffffffff_00000000 | _mm256_movemask_epi8(rev) as u64;
-
-        _tzcnt_u64(res) as usize
-    }
-}
 
 #[inline]
 fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut Bytes<'a>)
@@ -821,33 +623,7 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
 
                 // parse value till EOL
 
-                match_header_value_batch_32(bytes);
-                match_header_value_batch_16(bytes);
-
-                #[cfg(feature = "httparse_simd")]
-                #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2"))]
-                {
-                    'batch32: while bytes.as_ref().len() >= 32 {
-                        let advance = match_header_value_char_32_avx(bytes.as_ref());
-                        bytes.advance(advance);
-
-                       if advance != 32 {
-                            break 'batch32;
-                       }
-                    }
-                }
-                #[cfg(feature = "httparse_simd")]
-                #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "sse4.2"))]
-                {
-                    'batch16: while bytes.as_ref().len() >= 16 {
-                        let advance = match_header_value_char_16_sse(bytes.as_ref());
-                        bytes.advance(advance);
-
-                       if advance != 16 {
-                            break 'batch16;
-                       }
-                    }
-                }
+                simd::match_header_value_vectored(bytes);
 
                 macro_rules! check {
                     ($bytes:ident, $i:ident) => ({
@@ -882,10 +658,16 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
             if b == b'\r' {
                 expect!(bytes.next() == b'\n' => Err(Error::HeaderValue));
                 count += bytes.pos();
-                header.value = bytes.slice_skip(2);
+                // having just check that `\r\n` exists, it's safe to skip those 2 bytes
+                unsafe {
+                    header.value = bytes.slice_skip(2);
+                }
             } else if b == b'\n' {
                 count += bytes.pos();
-                header.value = bytes.slice_skip(1);
+                // having just check that `\r\n` exists, it's safe to skip 1 byte
+                unsafe {
+                    header.value = bytes.slice_skip(1);
+                }
             } else {
                 return Err(Error::HeaderValue);
             }

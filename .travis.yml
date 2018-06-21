@@ -1,13 +1,19 @@
 language: rust
 sudo: false
 dist: trusty
+
+rust:
+    - nightly
+    - beta
+    - stable
+    - 1.10.0
+
+env:
+    - CARGO_CFG_HTTPARSE_DISABLE_SIMD=1
+    - MATRIX_WHATEVER=1
+
 matrix:
     fast_finish: true
-    include:
-        - rust: nightly
-        - rust: beta
-        - rust: stable
-        - rust: 1.10.0
 
 cache:
     apt: true
