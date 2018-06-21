@@ -1,5 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-//#![cfg_attr(test, deny(warnings))]
+#![cfg_attr(test, deny(warnings))]
 #![deny(missing_docs)]
 //! # httparse
 //!

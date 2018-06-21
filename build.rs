@@ -29,6 +29,11 @@ fn enable_new_features(raw_version: &str) {
 }
 
 fn enable_simd(version: Version) {
+    if env::var_os("CARGO_FEATURE_STD").is_none() {
+        println!("cargo:warning=building for no_std disables httparse SIMD");
+        return;
+    }
+
     let env_disable = "CARGO_CFG_HTTPARSE_DISABLE_SIMD";
     if env::var_os(env_disable).is_some() {
         println!("cargo:warning=detected {} environment variable, disabling SIMD", env_disable);

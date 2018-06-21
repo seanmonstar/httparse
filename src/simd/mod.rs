@@ -57,14 +57,14 @@ mod runtime {
     //! at least in 1.27.0, the functions don't inline, leaving using it
     //! actually *slower* than just using the scalar fallback.
 
-    use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT, Ordering};
+    use core::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT, Ordering};
 
     static FEATURE: AtomicUsize = ATOMIC_USIZE_INIT;
 
     const INIT: usize = 0;
     const SSE_42: usize = 1;
     const AVX_2: usize = 2;
-    const NONE: usize = ::std::usize::MAX;
+    const NONE: usize = ::core::usize::MAX;
 
     fn detect() -> usize {
         let feat = FEATURE.load(Ordering::Relaxed);

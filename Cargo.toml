@@ -15,7 +15,6 @@ build = "build.rs"
 [features]
 default = ["std"]
 std = []
-nightly = []
 
 [dev-dependencies]
 pico-sys = "0.0"
