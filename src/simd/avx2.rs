@@ -1,14 +1,23 @@
 use ::iter::Bytes;
 
-pub unsafe fn parse_uri_batch_32<'a>(bytes: &mut Bytes<'a>) {
+pub enum Scan {
+    /// Returned when an implementation finds a noteworthy token.
+    Found,
+    /// Returned when an implementation couldn't keep running because the input was too short.
+    TooShort,
+}
+
+
+pub unsafe fn parse_uri_batch_32<'a>(bytes: &mut Bytes<'a>) -> Scan {
     while bytes.as_ref().len() >= 32 {
         let advance = match_url_char_32_avx(bytes.as_ref());
         bytes.advance(advance);
 
         if advance != 32 {
-            break;
+            return Scan::Found;
         }
     }
+    Scan::TooShort
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -57,15 +66,16 @@ unsafe fn match_url_char_32_avx(_: &[u8]) -> usize {
     unreachable!("AVX2 detection should be disabled for x86");
 }
 
-pub unsafe fn match_header_value_batch_32(bytes: &mut Bytes) {
+pub unsafe fn match_header_value_batch_32(bytes: &mut Bytes) -> Scan {
     while bytes.as_ref().len() >= 32 {
         let advance = match_header_value_char_32_avx(bytes.as_ref());
         bytes.advance(advance);
 
         if advance != 32 {
-            break;
+            return Scan::Found;
         }
     }
+    Scan::TooShort
 }
 
 #[cfg(target_arch = "x86_64")]

@@ -86,7 +86,7 @@ mod runtime {
         unsafe {
             match detect() {
                 SSE_42 => super::sse42::parse_uri_batch_16(bytes),
-                AVX_2 => super::avx2::parse_uri_batch_32(bytes),
+                AVX_2 => { super::avx2::parse_uri_batch_32(bytes); },
                 _ => ()
             }
         }
@@ -98,7 +98,7 @@ mod runtime {
         unsafe {
             match detect() {
                 SSE_42 => super::sse42::match_header_value_batch_16(bytes),
-                AVX_2 => super::avx2::match_header_value_batch_32(bytes),
+                AVX_2 => { super::avx2::match_header_value_batch_32(bytes); },
                 _ => ()
             }
         }
@@ -191,8 +191,12 @@ mod avx2_compile_time {
     pub fn match_header_value_vectored(bytes: &mut ::Bytes) {
         // do both, since avx2 only works when bytes.len() >= 32
         if cfg!(target_arch = "x86_64") && is_x86_feature_detected!("avx2") {
-            unsafe {
+            let scanned = unsafe {
                 super::avx2::match_header_value_batch_32(bytes);
+            };
+
+            if let super::avx2::Scan::Found = scanned {
+                return;
             }
         }
         if is_x86_feature_detected!("sse4.2") {
