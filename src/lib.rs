@@ -1,6 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(test, deny(warnings))]
 #![deny(missing_docs)]
+
 //! # httparse
 //!
 //! A push library for parsing HTTP/1.x requests and responses.
@@ -824,6 +825,48 @@ mod tests {
             assert_eq!(req.headers[0].value, b"foo.com");
             assert_eq!(req.headers[1].name, "Cookie");
             assert_eq!(req.headers[1].value, b"");
+        }
+    }
+
+    req! {
+        // test the scalar parsing
+        test_request_header_value_htab_short,
+        b"GET / HTTP/1.1\r\nUser-Agent: some\tagent\r\n\r\n",
+        |req| {
+            assert_eq!(req.method.unwrap(), "GET");
+            assert_eq!(req.path.unwrap(), "/");
+            assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers.len(), 1);
+            assert_eq!(req.headers[0].name, "User-Agent");
+            assert_eq!(req.headers[0].value, b"some\tagent");
+        }
+    }
+
+    req! {
+        // test the sse42 parsing
+        test_request_header_value_htab_med,
+        b"GET / HTTP/1.1\r\nUser-Agent: 1234567890some\tagent\r\n\r\n",
+        |req| {
+            assert_eq!(req.method.unwrap(), "GET");
+            assert_eq!(req.path.unwrap(), "/");
+            assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers.len(), 1);
+            assert_eq!(req.headers[0].name, "User-Agent");
+            assert_eq!(req.headers[0].value, b"1234567890some\tagent");
+        }
+    }
+
+    req! {
+        // test the avx2 parsing
+        test_request_header_value_htab_long,
+        b"GET / HTTP/1.1\r\nUser-Agent: 1234567890some\t1234567890agent1234567890\r\n\r\n",
+        |req| {
+            assert_eq!(req.method.unwrap(), "GET");
+            assert_eq!(req.path.unwrap(), "/");
+            assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers.len(), 1);
+            assert_eq!(req.headers[0].name, "User-Agent");
+            assert_eq!(req.headers[0].value, &b"1234567890some\t1234567890agent1234567890"[..]);
         }
     }
 
