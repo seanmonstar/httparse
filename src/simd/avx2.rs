@@ -11,15 +11,18 @@ pub unsafe fn parse_uri_batch_32<'a>(bytes: &mut Bytes<'a>) {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
 #[allow(non_snake_case, overflowing_literals)]
 unsafe fn match_url_char_32_avx(buf: &[u8]) -> usize {
     debug_assert!(buf.len() >= 32);
 
+    /*
     #[cfg(target_arch = "x86")]
     use core::arch::x86::*;
     #[cfg(target_arch = "x86_64")]
+    */
     use core::arch::x86_64::*;
 
     let ptr = buf.as_ptr();
@@ -49,6 +52,11 @@ unsafe fn match_url_char_32_avx(buf: &[u8]) -> usize {
     _tzcnt_u64(r) as usize
 }
 
+#[cfg(target_arch = "x86")]
+unsafe fn match_url_char_32_avx(_: &[u8]) -> usize {
+    unreachable!("AVX2 detection should be disabled for x86");
+}
+
 pub unsafe fn match_header_value_batch_32(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 32 {
         let advance = match_header_value_char_32_avx(bytes.as_ref());
@@ -60,15 +68,18 @@ pub unsafe fn match_header_value_batch_32(bytes: &mut Bytes) {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
 #[allow(non_snake_case)]
 unsafe fn match_header_value_char_32_avx(buf: &[u8]) -> usize {
     debug_assert!(buf.len() >= 32);
 
+    /*
     #[cfg(target_arch = "x86")]
     use core::arch::x86::*;
     #[cfg(target_arch = "x86_64")]
+    */
     use core::arch::x86_64::*;
 
     let ptr = buf.as_ptr();
@@ -89,3 +100,7 @@ unsafe fn match_header_value_char_32_avx(buf: &[u8]) -> usize {
     _tzcnt_u64(res) as usize
 }
 
+#[cfg(target_arch = "x86")]
+unsafe fn match_header_value_char_32_avx(_: &[u8]) -> usize {
+    unreachable!("AVX2 detection should be disabled for x86");
+}
