@@ -64,14 +64,20 @@ mod runtime {
     const INIT: usize = 0;
     const SSE_42: usize = 1;
     const AVX_2: usize = 2;
+    const AVX_2_AND_SSE_42: usize = 3;
     const NONE: usize = ::core::usize::MAX;
 
     fn detect() -> usize {
         let feat = FEATURE.load(Ordering::Relaxed);
         if feat == INIT {
             if cfg!(target_arch = "x86_64") && is_x86_feature_detected!("avx2") {
-                FEATURE.store(AVX_2, Ordering::Relaxed);
-                return AVX_2;
+                if is_x86_feature_detected!("sse4.2") {
+                    FEATURE.store(AVX_2_AND_SSE_42, Ordering::Relaxed);
+                    return AVX_2_AND_SSE_42;
+                } else {
+                    FEATURE.store(AVX_2, Ordering::Relaxed);
+                    return AVX_2;
+                }
             } else if is_x86_feature_detected!("sse4.2") {
                 FEATURE.store(SSE_42, Ordering::Relaxed);
                 return SSE_42;
@@ -87,6 +93,12 @@ mod runtime {
             match detect() {
                 SSE_42 => super::sse42::parse_uri_batch_16(bytes),
                 AVX_2 => { super::avx2::parse_uri_batch_32(bytes); },
+                AVX_2_AND_SSE_42 => {
+                    if let super::avx2::Scan::Found = super::avx2::parse_uri_batch_32(bytes) {
+                        return;
+                    }
+                    super::sse42::parse_uri_batch_16(bytes)
+                },
                 _ => ()
             }
         }
@@ -99,6 +111,12 @@ mod runtime {
             match detect() {
                 SSE_42 => super::sse42::match_header_value_batch_16(bytes),
                 AVX_2 => { super::avx2::match_header_value_batch_32(bytes); },
+                AVX_2_AND_SSE_42 => {
+                    if let super::avx2::Scan::Found = super::avx2::match_header_value_batch_32(bytes) {
+                        return;
+                    }
+                    super::sse42::match_header_value_batch_16(bytes)
+                },
                 _ => ()
             }
         }
