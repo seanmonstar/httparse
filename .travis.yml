@@ -11,14 +11,10 @@ env:
     -
     - CARGO_CFG_HTTPARSE_DISABLE_SIMD=1
     - CARGO_CFG_HTTPARSE_DISABLE_SIMD_COMPILETIME=1 RUSTFLAGS="-C target_feature=+sse4.2"
-    #- CARGO_CFG_HTTPARSE_DISABLE_SIMD_COMPILETIME=1 RUSTFLAGS="-C target_feature=+avx2"
-    #- CARGO_CFG_HTTPARSE_DISABLE_SIMD_COMPILETIME=1 RUSTFLAGS="-C target_feature=+sse4.2,+avx2"
     - RUSTFLAGS="-C target_feature=+sse4.2"
-    #- RUSTFLAGS="-C target_feature=+avx2"
-    #- RUSTFLAGS="-C target_feature=+sse4.2,+avx2"
 
 matrix:
-    #fast_finish: true
+    fast_finish: true
     include:
         - rust: 1.10.0 # minimum Rust version
           script: # don't run tests, since dev-dependencies don't build on 1.10
