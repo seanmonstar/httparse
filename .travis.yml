@@ -1,19 +1,65 @@
 language: rust
 sudo: false
 dist: trusty
+
+rust:
+    - nightly
+    - beta
+    - stable
+
+env:
+    -
+    - CARGO_CFG_HTTPARSE_DISABLE_SIMD=1
+    - CARGO_CFG_HTTPARSE_DISABLE_SIMD_COMPILETIME=1 RUSTFLAGS="-C target_feature=+sse4.2"
+    - RUSTFLAGS="-C target_feature=+sse4.2"
+
 matrix:
     fast_finish: true
     include:
-        - rust: nightly
-        - rust: beta
-        - rust: stable
-        - rust: 1.10.0
+        - rust: 1.10.0 # minimum Rust version
+          script: # don't run tests, since dev-dependencies don't build on 1.10
+              - cargo build --no-default-features
+              - cargo build
 
-cache:
-    apt: true
-    directories:
-        - target/debug/deps
-        - target/debug/build
+        # with sudo the worker has avx2 support
+        - rust: nightly
+          sudo: true
+          env: RUSTFLAGS="-C target_feature=+avx2"
+        - rust: nightly
+          sudo: true
+          env: RUSTFLAGS="-C target_feature=sse4.2"
+        - rust: nightly
+          sudo: true
+          env: RUSTFLAGS="-C target_feature=+sse4.2,+avx2"
+        - rust: nightly
+          sudo: true
+          env: CARGO_CFG_HTTPARSE_DISABLE_SIMD_COMPILETIME=1 RUSTFLAGS="-C target_feature=+sse4.2,+avx2"
+
+        - rust: beta
+          sudo: true
+          env: RUSTFLAGS="-C target_feature=+avx2"
+        - rust: beta
+          sudo: true
+          env: RUSTFLAGS="-C target_feature=+sse4.2"
+        - rust: beta
+          sudo: true
+          env: RUSTFLAGS="-C target_feature=+sse4.2,+avx2"
+        - rust: beta
+          sudo: true
+          env: CARGO_CFG_HTTPARSE_DISABLE_SIMD_COMPILETIME=1 RUSTFLAGS="-C target_feature=+sse4.2,+avx2"
+
+        - rust: stable
+          sudo: true
+          env: RUSTFLAGS="-C target_feature=+avx2"
+        - rust: stable
+          sudo: true
+          env: RUSTFLAGS="-C target_feature=+sse4.2"
+        - rust: stable
+          sudo: true
+          env: RUSTFLAGS="-C target_feature=+sse4.2,+avx2"
+        - rust: stable
+          sudo: true
+          env: CARGO_CFG_HTTPARSE_DISABLE_SIMD_COMPILETIME=1 RUSTFLAGS="-C target_feature=+sse4.2,+avx2"
 
 script:
     - cargo build --no-default-features
@@ -21,28 +67,3 @@ script:
     - cargo build
     - cargo test
 
-
-addons:
-  apt:
-    packages:
-      - libcurl4-openssl-dev
-      - libelf-dev
-      - libdw-dev
-      - binutils-dev
-      - libiberty-dev
-
-after_success:
-  - '[ $TRAVIS_RUST_VERSION = stable ] &&
-    LOCAL="~/.local" && export PATH=$LOCAL/bin:$PATH &&
-    wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
-    tar xzf master.tar.gz && mkdir kcov-master/build && cd kcov-master/build &&
-    cmake -DCMAKE_INSTALL_PREFIX:PATH=$LOCAL .. && make && make install && cd ../.. &&
-    ls target/debug &&
-    RUSTFLAGS="-C link-dead-code" cargo test --no-run &&
-    for file in target/debug/httparse-*; do
-      if [[ "${file: -2}" != ".d" ]]; then
-        mkdir -p "target/cov/$(basename $file)";
-        kcov --exclude-pattern=/.cargo,/usr/lib --verify "target/cov/$(basename $file)" "$file";
-      fi;
-    done &&
-    kcov --coveralls-id=$TRAVIS_JOB_ID --merge target/cov target/cov/*'

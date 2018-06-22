@@ -10,6 +10,8 @@ documentation = "https://docs.rs/httparse"
 keywords = ["http", "parser", "no_std"]
 categories = ["network-programming", "no-std", "parser-implementations", "web-programming"]
 
+build = "build.rs"
+
 [features]
 default = ["std"]
 std = []

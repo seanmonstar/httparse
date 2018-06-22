@@ -1,4 +1,4 @@
-#![cfg_attr(not(feature = "std"),  no_std)]
+#![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(test, deny(warnings))]
 #![deny(missing_docs)]
 //! # httparse
@@ -10,44 +10,25 @@
 //! parsing internals use an `Iterator` instead of direct indexing, while
 //! skipping bounds checks.
 //!
-//! The speed is faster than picohttpparser, when SIMD is not available.
-#[cfg(feature = "std")] extern crate std as core;
+//! With Rust 1.27.0 or later, support for SIMD is enabled automatically.
+//! If building an executable to be run on multiple platforms, and thus
+//! not passing `target_feature` or `target_cpu` flags to the compiler,
+//! runtime detection can still detect SSE4.2 or AVX2 support to provide
+//! massive wins.
+//!
+//! If compiling for a specific target, remembering to include
+//! `-C target_cpu=native` allows the detection to become compile time checks,
+//! making it *even* faster.
+#[cfg(feature = "std")]
+extern crate std as core;
 
 use core::{fmt, result, str, slice};
 
 use iter::Bytes;
 
 mod iter;
-
-macro_rules! next {
-    ($bytes:ident) => ({
-        match $bytes.next() {
-            Some(b) => b,
-            None => return Ok(Status::Partial)
-        }
-    })
-}
-
-macro_rules! expect {
-    ($bytes:ident.next() == $pat:pat => $ret:expr) => {
-        expect!(next!($bytes) => $pat |? $ret)
-    };
-    ($e:expr => $pat:pat |? $ret:expr) => {
-        match $e {
-            v@$pat => v,
-            _ => return $ret
-        }
-    };
-}
-
-macro_rules! complete {
-    ($e:expr) => {
-        match try!($e) {
-            Status::Complete(v) => v,
-            Status::Partial => return Ok(Status::Partial)
-        }
-    }
-}
+#[macro_use] mod macros;
+mod simd;
 
 #[inline]
 fn shrink<T>(slice: &mut &mut [T], len: usize) {
@@ -70,10 +51,33 @@ fn shrink<T>(slice: &mut &mut [T], len: usize) {
 fn is_token(b: u8) -> bool {
     b > 0x1F && b < 0x7F
 }
-macro_rules! byte_map {
-    ($($flag:expr,)*) => ([
-        $($flag != 0,)*
-    ])
+
+// ASCII codes to accept URI string.
+// i.e. A-Z a-z 0-9 !#$%&'*+-._();:@=,/?[]~
+// TODO: Make a stricter checking for URI string?
+static URI_MAP: [bool; 256] = byte_map![
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1,
+    0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0,
+    // ====== Extended ASCII (aka. obs-text) ======
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+];
+
+#[inline]
+fn is_uri_token(b: u8) -> bool {
+    URI_MAP[b as usize]
 }
 
 static HEADER_NAME_MAP: [bool; 256] = byte_map![
@@ -101,7 +105,7 @@ fn is_header_name_token(b: u8) -> bool {
 }
 
 static HEADER_VALUE_MAP: [bool; 256] = byte_map![
-    0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -123,29 +127,6 @@ static HEADER_VALUE_MAP: [bool; 256] = byte_map![
 #[inline]
 fn is_header_value_token(b: u8) -> bool {
     HEADER_VALUE_MAP[b as usize]
-}
-
-
-macro_rules! space {
-    ($bytes:ident or $err:expr) => ({
-        expect!($bytes.next() == b' ' => Err($err));
-        $bytes.slice();
-    })
-}
-
-macro_rules! newline {
-    ($bytes:ident) => ({
-        match next!($bytes) {
-            b'\r' => {
-                expect!($bytes.next() == b'\n' => Err(Error::NewLine));
-                $bytes.slice();
-            },
-            b'\n' => {
-                $bytes.slice();
-            },
-            _ => return Err(Error::NewLine)
-        }
-    })
 }
 
 /// An error in parsing.
@@ -311,7 +292,7 @@ impl<'h, 'b> Request<'h, 'b> {
         let mut bytes = Bytes::new(buf);
         complete!(skip_empty_lines(&mut bytes));
         self.method = Some(complete!(parse_token(&mut bytes)));
-        self.path = Some(complete!(parse_token(&mut bytes)));
+        self.path = Some(complete!(parse_uri(&mut bytes)));
         self.version = Some(complete!(parse_version(&mut bytes)));
         newline!(bytes);
 
@@ -328,11 +309,13 @@ fn skip_empty_lines(bytes: &mut Bytes) -> Result<()> {
         let b = bytes.peek();
         match b {
             Some(b'\r') => {
-                bytes.bump();
+                // there's `\r`, so it's safe to bump 1 pos
+                unsafe { bytes.bump() };
                 expect!(bytes.next() == b'\n' => Err(Error::NewLine));
             },
             Some(b'\n') => {
-                bytes.bump();
+                // there's `\n`, so it's safe to bump 1 pos
+                unsafe { bytes.bump(); }
             },
             Some(..) => {
                 bytes.slice();
@@ -520,14 +503,32 @@ fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
 }
 
 #[inline]
+fn parse_uri<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
+    simd::match_uri_vectored(bytes);
+
+    loop {
+        let b = next!(bytes);
+        if b == b' ' {
+            return Ok(Status::Complete(unsafe {
+                // all bytes up till `i` must have been `is_token`.
+                str::from_utf8_unchecked(bytes.slice_skip(1))
+            }));
+        } else if !is_uri_token(b) {
+            return Err(Error::Token);
+        }
+    }
+}
+
+
+#[inline]
 fn parse_code(bytes: &mut Bytes) -> Result<u16> {
     let hundreds = expect!(bytes.next() == b'0'...b'9' => Err(Error::Status));
     let tens = expect!(bytes.next() == b'0'...b'9' => Err(Error::Status));
     let ones = expect!(bytes.next() == b'0'...b'9' => Err(Error::Status));
 
     Ok(Status::Complete((hundreds - b'0') as u16 * 100 +
-                        (tens - b'0') as u16 * 10 +
-                        (ones - b'0') as u16))
+        (tens - b'0') as u16 * 10 +
+        (ones - b'0') as u16))
 }
 
 /// Parse a buffer of bytes as headers.
@@ -554,6 +555,16 @@ pub fn parse_headers<'b: 'h, 'h>(src: &'b [u8], mut dst: &'h mut [Header<'b>])
     let pos = complete!(parse_headers_iter(&mut dst, &mut iter));
     Ok(Status::Complete((pos, dst)))
 }
+
+/*
+#[cfg(not(any(
+    feature = "httparse_simd",
+    target_arch = "x86",
+    target_arch = "x86_64",
+    target_feature = "sse4.2"
+)))]
+*/
+
 
 #[inline]
 fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut Bytes<'a>)
@@ -620,7 +631,7 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
 
                 // parse value till EOL
 
-
+                simd::match_header_value_vectored(bytes);
 
                 macro_rules! check {
                     ($bytes:ident, $i:ident) => ({
@@ -655,14 +666,19 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
             if b == b'\r' {
                 expect!(bytes.next() == b'\n' => Err(Error::HeaderValue));
                 count += bytes.pos();
-                header.value = bytes.slice_skip(2);
+                // having just check that `\r\n` exists, it's safe to skip those 2 bytes
+                unsafe {
+                    header.value = bytes.slice_skip(2);
+                }
             } else if b == b'\n' {
                 count += bytes.pos();
-                header.value = bytes.slice_skip(1);
+                // having just check that `\r\n` exists, it's safe to skip 1 byte
+                unsafe {
+                    header.value = bytes.slice_skip(1);
+                }
             } else {
                 return Err(Error::HeaderValue);
             }
-
         }
     } // drop iter
 
@@ -683,7 +699,7 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
 ///            Ok(httparse::Status::Complete((3, 4))));
 /// ```
 pub fn parse_chunk_size(buf: &[u8])
-        -> result::Result<Status<(usize, u64)>, InvalidChunkSize> {
+    -> result::Result<Status<(usize, u64)>, InvalidChunkSize> {
     const RADIX: u64 = 16;
     let mut bytes = Bytes::new(buf);
     let mut size = 0;
@@ -693,7 +709,7 @@ pub fn parse_chunk_size(buf: &[u8])
     loop {
         let b = next!(bytes);
         match b {
-            b'0'...b'9' if in_chunk_size => {
+            b'0' ... b'9' if in_chunk_size => {
                 if count > 15 {
                     return Err(InvalidChunkSize);
                 }
@@ -701,7 +717,7 @@ pub fn parse_chunk_size(buf: &[u8])
                 size *= RADIX;
                 size += (b - b'0') as u64;
             },
-            b'a'...b'f' if in_chunk_size => {
+            b'a' ... b'f' if in_chunk_size => {
                 if count > 15 {
                     return Err(InvalidChunkSize);
                 }
@@ -709,7 +725,7 @@ pub fn parse_chunk_size(buf: &[u8])
                 size *= RADIX;
                 size += (b + 10 - b'a') as u64;
             }
-            b'A'...b'F' if in_chunk_size => {
+            b'A' ... b'F' if in_chunk_size => {
                 if count > 15 {
                     return Err(InvalidChunkSize);
                 }
