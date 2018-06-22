@@ -192,7 +192,7 @@ mod avx2_compile_time {
         // do both, since avx2 only works when bytes.len() >= 32
         if cfg!(target_arch = "x86_64") && is_x86_feature_detected!("avx2") {
             let scanned = unsafe {
-                super::avx2::match_header_value_batch_32(bytes);
+                super::avx2::match_header_value_batch_32(bytes)
             };
 
             if let super::avx2::Scan::Found = scanned {
