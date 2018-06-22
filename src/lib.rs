@@ -101,7 +101,7 @@ fn is_header_name_token(b: u8) -> bool {
 }
 
 static HEADER_VALUE_MAP: [bool; 256] = byte_map![
-    0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -833,6 +833,18 @@ mod tests {
         }
     }
 
+    req! {
+        test_request_header_value_htab,
+        b"GET / HTTP/1.1\r\nUser-Agent: some\tagent\r\n\r\n",
+        |req| {
+            assert_eq!(req.method.unwrap(), "GET");
+            assert_eq!(req.path.unwrap(), "/");
+            assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers.len(), 1);
+            assert_eq!(req.headers[0].name, "User-Agent");
+            assert_eq!(req.headers[0].value, b"some\tagent");
+        }
+    }
 
     req! {
         test_request_partial,
