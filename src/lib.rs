@@ -381,6 +381,7 @@ impl<'h, 'b> Response<'h, 'b> {
             },
             b'\r' => {
                 expect!(bytes.next() == b'\n' => Err(Error::Status));
+                bytes.slice();
                 self.reason = Some("");
             },
             b'\n' => self.reason = Some(""),
@@ -1002,6 +1003,19 @@ mod tests {
             assert_eq!(res.version.unwrap(), 1);
             assert_eq!(res.code.unwrap(), 200);
             assert_eq!(res.reason.unwrap(), "");
+        }
+    }
+
+    res! {
+        test_response_reason_missing_no_space_with_headers,
+        b"HTTP/1.1 200\r\nFoo: bar\r\n\r\n",
+        |res| {
+            assert_eq!(res.version.unwrap(), 1);
+            assert_eq!(res.code.unwrap(), 200);
+            assert_eq!(res.reason.unwrap(), "");
+            assert_eq!(res.headers.len(), 1);
+            assert_eq!(res.headers[0].name, "Foo");
+            assert_eq!(res.headers[0].value, b"bar");
         }
     }
 
