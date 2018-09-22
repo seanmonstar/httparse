@@ -666,21 +666,30 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
             }
 
             //found_ctl
-            if b == b'\r' {
+            let value_slice : &[u8] = if b == b'\r' {
                 expect!(bytes.next() == b'\n' => Err(Error::HeaderValue));
                 count += bytes.pos();
                 // having just check that `\r\n` exists, it's safe to skip those 2 bytes
                 unsafe {
-                    header.value = bytes.slice_skip(2);
+                    bytes.slice_skip(2)
                 }
             } else if b == b'\n' {
                 count += bytes.pos();
                 // having just check that `\r\n` exists, it's safe to skip 1 byte
                 unsafe {
-                    header.value = bytes.slice_skip(1);
+                    bytes.slice_skip(1)
                 }
             } else {
                 return Err(Error::HeaderValue);
+            };
+            // trim trailing whitespace in the header
+            if let Some(last_visible) = value_slice.iter().rposition(|b| *b != b' ' && *b != b'\t' ) {
+                // There is at least one non-whitespace character.
+                header.value = &value_slice[0..last_visible+1];
+            } else {
+                // There is no non-whitespace character. This can only happen when value_slice is
+                // empty.
+                header.value = value_slice;
             }
         }
     } // drop iter
@@ -818,6 +827,21 @@ mod tests {
     req! {
         test_request_headers,
         b"GET / HTTP/1.1\r\nHost: foo.com\r\nCookie: \r\n\r\n",
+        |req| {
+            assert_eq!(req.method.unwrap(), "GET");
+            assert_eq!(req.path.unwrap(), "/");
+            assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers.len(), 2);
+            assert_eq!(req.headers[0].name, "Host");
+            assert_eq!(req.headers[0].value, b"foo.com");
+            assert_eq!(req.headers[1].name, "Cookie");
+            assert_eq!(req.headers[1].value, b"");
+        }
+    }
+
+    req! {
+        test_request_headers_optional_whitespace,
+        b"GET / HTTP/1.1\r\nHost: \tfoo.com\t \r\nCookie: \t \r\n\r\n",
         |req| {
             assert_eq!(req.method.unwrap(), "GET");
             assert_eq!(req.path.unwrap(), "/");
