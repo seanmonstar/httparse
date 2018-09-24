@@ -816,6 +816,28 @@ mod tests {
     }
 
     req! {
+        test_request_simple_with_query_params,
+        b"GET /thing?data=a HTTP/1.1\r\n\r\n",
+        |req| {
+            assert_eq!(req.method.unwrap(), "GET");
+            assert_eq!(req.path.unwrap(), "/thing?data=a");
+            assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers.len(), 0);
+        }
+    }
+
+    req! {
+        test_request_simple_with_whatwg_query_params,
+        b"GET /thing?data=a^ HTTP/1.1\r\n\r\n",
+        |req| {
+            assert_eq!(req.method.unwrap(), "GET");
+            assert_eq!(req.path.unwrap(), "/thing?data=a^");
+            assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers.len(), 0);
+        }
+    }
+
+    req! {
         test_request_headers,
         b"GET / HTTP/1.1\r\nHost: foo.com\r\nCookie: \r\n\r\n",
         |req| {
