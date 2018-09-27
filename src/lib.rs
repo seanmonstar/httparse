@@ -567,15 +567,6 @@ pub fn parse_headers<'b: 'h, 'h>(src: &'b [u8], mut dst: &'h mut [Header<'b>])
     Ok(Status::Complete((pos, dst)))
 }
 
-/*
-#[cfg(not(any(
-    feature = "httparse_simd",
-    target_arch = "x86",
-    target_arch = "x86_64",
-    target_feature = "sse4.2"
-)))]
-*/
-
 
 #[inline]
 fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut Bytes<'a>)
