@@ -2,13 +2,14 @@
 
 [![Build Status](https://travis-ci.org/seanmonstar/httparse.svg?branch=master)](https://travis-ci.org/seanmonstar/httparse)
 [![Coverage Status](https://coveralls.io/repos/seanmonstar/httparse/badge.svg)](https://coveralls.io/r/seanmonstar/httparse)
-[![crates.io](https://img.shields.io/crates/v/httparse.svg?maxAge=2592000)](https://crates.io/crates/httparse)
+[![crates.io](https://img.shields.io/crates/v/httparse.svg)](https://crates.io/crates/httparse)
 
 A push parser for the HTTP 1.x protocol. Avoids allocations. No copy. **Fast.**
 
 Works with `no_std`, simply disable the `std` Cargo feature.
 
 [Documentation](https://docs.rs/httparse)
+[Changelog](https://github.com/seanmonstar/httparse/releases)
 
 ## Usage
 
