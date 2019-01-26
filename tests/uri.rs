@@ -32,6 +32,7 @@ macro_rules! req_dyn {
     );
     ($name:ident, $buf:expr, $len:expr, |$arg:ident| $body:expr) => (
     #[test]
+    #[cfg(feature = "std")]
     fn $name() {
         let mut req = DynRequest::new(None);
         let status = req.parse($buf.as_ref());
