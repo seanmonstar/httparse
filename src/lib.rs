@@ -326,8 +326,8 @@ pub struct DynRequest<'headers> {
 impl<'headers> DynRequest<'headers> {
     /// Create a request that will allocate headers dynamically
     #[inline]    
-    pub fn new(header_capacity: Option<usize>) -> Self {
-        Self {
+    pub fn new(header_capacity: Option<usize>) -> DynRequest<'headers> {
+        DynRequest {
             method: None,
             path: None,
             version: None,
