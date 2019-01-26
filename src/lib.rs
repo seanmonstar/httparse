@@ -600,6 +600,7 @@ fn parse_reason<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
 }
 
 #[inline]
+#[cfg(feature = "std")]
 fn parse_token_offset<'a>(bytes: &mut Bytes<'a>) -> Result<(usize,usize,usize)> {
     let start = bytes.pos();
     loop {
@@ -635,6 +636,7 @@ fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
 }
 
 #[inline]
+#[cfg(feature = "std")]
 fn parse_uri_offset<'a>(bytes: &mut Bytes<'a>) -> Result<(usize, usize, usize)> {
     let start = bytes.pos();
     simd::match_uri_vectored(bytes);
