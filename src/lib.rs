@@ -284,6 +284,103 @@ pub struct Request<'headers, 'buf: 'headers> {
     pub headers: &'headers mut [Header<'buf>]
 }
 
+/// A parsed Request that allocates headers dynamically
+///
+/// The optional values will be `None` if a parse was not complete, and did not
+/// parse the associated property. This allows you to inspect the parts that
+/// could be parsed, before reading more, in case you wish to exit early.
+/// 
+/// The fields of this struct are private. The user need to call
+/// `get_request` to obtain a static snapshot and check the result.
+///
+/// # Example
+///
+/// ```no_run
+/// let buf = b"GET /404 HTTP/1.1\r\nHost:";
+/// let mut req = httparse::DynRequest::new(None);
+/// let res = req.parse(buf).unwrap();
+/// if res.is_partial() {
+///     // get a snapshot with statically allocated headers
+///     let req = req.get_request(buf);
+///     match req.path {
+///         Some(ref path) => {
+///             // check router for path.
+///             // /404 doesn't exist? we could stop parsing
+///         },
+///         None => {
+///             // must read more and parse again
+///         }
+///     }
+/// }
+/// ```
+#[derive(Debug, PartialEq, Clone)]
+pub struct DynRequest<'headers> {
+    method: Option<(usize,usize)>,
+    path: Option<(usize,usize)>,
+    version: Option<u8>,
+    headers: Vec<Header<'headers>>
+}
+#[allow(dead_code)]
+impl<'headers> DynRequest<'headers> {
+    /// Create a request that will allocate headers dynamically
+    #[inline]
+    pub fn new(header_capacity: Option<usize>) -> Self {
+        Self {
+            method: None,
+            path: None,
+            version: None,
+            headers: if let Some(cap) = header_capacity { Vec::with_capacity(cap) } else { vec![] }
+        }
+    }
+    /// After a call to `parse`, call this method to obtain the result.
+    /// 
+    pub fn get_request<'buf>(&'buf mut self, buf: &'buf [u8]) -> Request<'headers, 'buf> {
+        Request {
+            method: self.method.and_then(|(start, len)|
+                std::str::from_utf8(&buf[start..start+len]).ok()),
+            path: self.path.and_then(|(start, len)| 
+                std::str::from_utf8(&buf[start..start+len]).ok()),
+            version: self.version,
+            headers: &mut self.headers
+        }
+    }
+    /// Try to parse a buffer of bytes into the Request.
+    /// Call `get_request` to check the result.
+    pub fn parse<'buf: 'headers>(&mut self, buf: &'buf [u8]) -> Result<usize>
+    {
+        let orig_len = buf.len();
+        let mut bytes = Bytes::new(buf);
+        let mut pos = 0;
+        complete!(skip_empty_lines(&mut bytes));
+        self.method = match parse_token_offset(&mut bytes)? {
+            Status::Complete((s,l,p)) => {
+                let r =Some((s+pos, l));
+                pos += p;
+                r
+            },
+            Status::Partial => return Ok(Status::Partial)
+        };
+        self.path = match parse_uri_offset(&mut bytes)? {
+            Status::Complete((s,l,_)) => {
+                Some((s+pos, l))
+            },
+            Status::Partial => return Ok(Status::Partial)
+        };
+        self.version = Some(complete!(parse_version(&mut bytes)));
+        newline!(bytes);
+
+        let len = orig_len - bytes.len();
+        let header_cnt = self.headers.len();
+        self.headers.push(EMPTY_HEADER);
+        let mut headers_len = 0;
+        let mut headers_ref = &mut self.headers[header_cnt..];
+        while bytes.pos()<bytes.len() {
+            headers_len += complete!(parse_headers_iter(&mut headers_ref, &mut bytes));
+        }
+        Ok(Status::Complete(len + headers_len))
+    }
+} 
+
 impl<'h, 'b> Request<'h, 'b> {
     /// Creates a new Request, using a slice of headers you allocate.
     #[inline]
@@ -427,6 +524,8 @@ pub struct Header<'a> {
 /// ```
 pub const EMPTY_HEADER: Header<'static> = Header { name: "", value: b"" };
 
+
+
 #[inline]
 fn parse_version(bytes: &mut Bytes) -> Result<u8> {
     if let Some(mut eight) = bytes.next_8() {
@@ -499,6 +598,26 @@ fn parse_reason<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
 }
 
 #[inline]
+fn parse_token_offset<'a>(bytes: &mut Bytes<'a>) -> Result<(usize,usize,usize)> {
+    let start = bytes.pos();
+    loop {
+        let b = next!(bytes);        
+        if b == b' ' {
+            // we need to keep track of the position of the bytes.
+            // after slice_skip the position will be reset so
+            // we have to get it here.
+            let pos = bytes.pos();
+            return Ok(Status::Complete((start, unsafe {
+                // all bytes up till `i` must have been `is_token`.
+                str::from_utf8_unchecked(bytes.slice_skip(1))
+            }.len(), pos)));
+        } else if !is_token(b) {
+            return Err(Error::Token);
+        }
+    }
+}
+
+#[inline]
 fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
     loop {
         let b = next!(bytes);
@@ -508,6 +627,28 @@ fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
                 str::from_utf8_unchecked(bytes.slice_skip(1))
             }));
         } else if !is_token(b) {
+            return Err(Error::Token);
+        }
+    }
+}
+
+#[inline]
+fn parse_uri_offset<'a>(bytes: &mut Bytes<'a>) -> Result<(usize, usize, usize)> {
+    let start = bytes.pos();
+    simd::match_uri_vectored(bytes);
+
+    loop {
+        let b = next!(bytes);
+        if b == b' ' {
+            // we need to keep track of the position of the bytes.
+            // after slice_skip the position will be reset so
+            // we have to get it here.
+            let pos = bytes.pos();
+            return Ok(Status::Complete((start,unsafe {
+                // all bytes up till `i` must have been `is_token`.
+                str::from_utf8_unchecked(bytes.slice_skip(1))
+            }.len(), pos)));
+        } else if !is_uri_token(b) {
             return Err(Error::Token);
         }
     }
