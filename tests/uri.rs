@@ -1,6 +1,9 @@
 extern crate httparse;
 
-use httparse::{Error, Request, DynRequest, Status, EMPTY_HEADER};
+use httparse::{Error, Request, Status, EMPTY_HEADER};
+
+#[cfg(feature="std")]
+use httparse::DynRequest;
 
 const NUM_OF_HEADERS: usize = 4;
 
