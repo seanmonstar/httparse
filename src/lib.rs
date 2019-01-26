@@ -354,7 +354,7 @@ impl<'headers> DynRequest<'headers> {
         let mut bytes = Bytes::new(buf);
         let mut pos = 0;
         complete!(skip_empty_lines(&mut bytes));
-        self.method = match parse_token_offset(&mut bytes)? {
+        self.method = match try!(parse_token_offset(&mut bytes)) {
             Status::Complete((s,l,p)) => {
                 let r =Some((s+pos, l));
                 pos += p;
@@ -362,7 +362,7 @@ impl<'headers> DynRequest<'headers> {
             },
             Status::Partial => return Ok(Status::Partial)
         };
-        self.path = match parse_uri_offset(&mut bytes)? {
+        self.path = match try!(parse_uri_offset(&mut bytes)) {
             Status::Complete((s,l,_)) => {
                 Some((s+pos, l))
             },
