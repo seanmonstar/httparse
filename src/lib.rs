@@ -314,16 +314,18 @@ pub struct Request<'headers, 'buf: 'headers> {
 /// }
 /// ```
 #[derive(Debug, PartialEq, Clone)]
+#[cfg(feature = "std")]
 pub struct DynRequest<'headers> {
     method: Option<(usize,usize)>,
     path: Option<(usize,usize)>,
     version: Option<u8>,
     headers: Vec<Header<'headers>>
 }
-#[allow(dead_code)]
+
+#[cfg(feature = "std")]
 impl<'headers> DynRequest<'headers> {
     /// Create a request that will allocate headers dynamically
-    #[inline]
+    #[inline]    
     pub fn new(header_capacity: Option<usize>) -> Self {
         Self {
             method: None,
