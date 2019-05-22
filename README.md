@@ -14,16 +14,24 @@ Works with `no_std`, simply disable the `std` Cargo feature.
 ## Usage
 
 ```rust
-let mut headers = [httparse::EMPTY_HEADER; 16];
-let mut req = httparse::Request::new(&mut headers);
+fn parse() -> httparse::Result<usize> {
+    let mut headers = [httparse::EMPTY_HEADER; 16];
+    let mut req = httparse::Request::new(&mut headers);
 
-let buf = b"GET /index.html HTTP/1.1\r\nHost";
-assert!(req.parse(buf)?.is_partial());
+    let buf = b"GET /index.html HTTP/1.1\r\nHost";
+    assert!(req.parse(buf)?.is_partial());
 
-// a partial request, so we try again once we have more data
+    // a partial request, so we try again once we have more data
 
-let buf = b"GET /index.html HTTP/1.1\r\nHost: example.domain\r\n\r\n";
-assert!(req.parse(buf)?.is_complete());
+    let buf = b"GET /index.html HTTP/1.1\r\nHost: example.domain\r\n\r\n";
+    let res = req.parse(buf)?;
+    assert!(res.is_complete());
+    Ok(res)
+}
+
+fn main() {
+    assert!(parse().is_ok());
+}
 ```
 
 ## License

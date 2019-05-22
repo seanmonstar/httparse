@@ -24,6 +24,13 @@
 #[cfg(feature = "std")]
 extern crate std as core;
 
+#[cfg(test)]
+#[macro_use]
+extern crate doc_comment;
+
+#[cfg(test)]
+doctest!("../README.md");
+
 use core::{fmt, result, str, slice};
 
 use iter::Bytes;

@@ -19,6 +19,7 @@ std = []
 
 [dev-dependencies]
 pico-sys = "0.0"
+doc-comment = "0.3"
 
 [profile.bench]
 lto = true
