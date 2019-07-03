@@ -71,7 +71,7 @@ static URI_MAP: [bool; 256] = byte_map![
 //  0  1  2  3  4  5  6  7  8  9  :  ;  <  =  >  ?
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
 //  @  A  B  C  D  E  F  G  H  I  J  K  L  M  N  O
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
 //  P  Q  R  S  T  U  V  W  X  Y  Z  [  \  ]  ^  _
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
 //  `  a  b  c  d  e  f  g  h  i  j  k  l  m  n  o
@@ -978,6 +978,17 @@ mod tests {
         |req| {
             assert_eq!(req.method.unwrap(), "GET");
             assert_eq!(req.path.unwrap(), "/");
+            assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers.len(), 0);
+        }
+    }
+
+    req! {
+        test_request_path_backslash,
+        b"\n\nGET /\\?wayne\\=5 HTTP/1.1\n\n",
+        |req| {
+            assert_eq!(req.method.unwrap(), "GET");
+            assert_eq!(req.path.unwrap(), "/\\?wayne\\=5");
             assert_eq!(req.version.unwrap(), 1);
             assert_eq!(req.headers.len(), 0);
         }
