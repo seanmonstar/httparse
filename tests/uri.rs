@@ -2437,9 +2437,13 @@ req! {
 
 req! {
     urltest_174,
-    b"GET \\.\\./ HTTP/1.1\r\nHost: \r\n\r\n",
-    Err(Error::Token),
-    |_r| {}
+    b"GET \\.\\./ HTTP/1.1\r\n\r\n",
+    |req| {
+        assert_eq!(req.method.unwrap(), "GET");
+        assert_eq!(req.path.unwrap(), "\\.\\./");
+        assert_eq!(req.version.unwrap(), 1);
+        assert_eq!(req.headers.len(), 0);
+    }
 }
 
 
