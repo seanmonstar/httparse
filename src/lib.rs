@@ -1,7 +1,10 @@
 #![doc(html_root_url = "https://docs.rs/httparse/1.3.3")]
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(test, deny(warnings))]
 #![deny(missing_docs)]
+#![cfg_attr(test, deny(warnings))]
+// we can't upgrade while supporting Rust 1.3
+#![allow(deprecated)]
+#![cfg_attr(httparse_min_2018, allow(rust_2018_idioms))]
 
 //! # httparse
 //!
