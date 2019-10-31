@@ -552,7 +552,9 @@ fn parse_code(bytes: &mut Bytes) -> Result<u16> {
 /// headers. The length of the slice will be equal to the number of properly
 /// parsed headers.
 ///
-/// # Example
+/// # Examples
+///
+/// Parsing headers from a byte buffer:
 ///
 /// ```
 /// let buf = b"Host: foo.bar\nAccept: */*\n\nblah blah";
@@ -562,6 +564,41 @@ fn parse_code(bytes: &mut Bytes) -> Result<u16> {
 ///                httparse::Header { name: "Host", value: b"foo.bar" },
 ///                httparse::Header { name: "Accept", value: b"*/*" }
 ///            ][..]))));
+/// ```
+///
+/// Parsing headers from an arbitrary `Read`:
+///
+/// ```
+/// use std::io::BufReader;
+/// use std::io::prelude::*;
+///
+/// use httparse::{Status, EMPTY_HEADER};
+///
+/// fn parse_from_reader(reader: impl Read) {
+///     let mut reader = BufReader::new(reader);
+///
+///     let mut last_len = 0;
+///
+///     let bytes_consumed = loop {
+///         let buf = reader.fill_buf().unwrap();
+///
+///         if buf.len() == last_len {
+///             panic!("header too long");
+///         }
+///
+///         let mut headers = [EMPTY_HEADER; 4];
+///
+///         match httparse::parse_headers(buf, &mut headers).unwrap() {
+///             Status::Partial => last_len = buf.len(),
+///             Status::Complete((n, parsed)) => {
+///                 println!("{:?}", parsed);
+///                 break n;
+///             }
+///         }
+///     };
+///
+///     reader.consume(bytes_consumed);
+/// }
 /// ```
 pub fn parse_headers<'b: 'h, 'h>(src: &'b [u8], mut dst: &'h mut [Header<'b>])
     -> Result<(usize, &'h [Header<'b>])> {
