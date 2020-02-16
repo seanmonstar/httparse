@@ -27,7 +27,7 @@
 #[cfg(feature = "std")]
 extern crate std as core;
 
-use core::{fmt, result, str, slice};
+use core::{fmt, result, str, slice, cmp::min};
 
 use iter::Bytes;
 
@@ -301,12 +301,18 @@ impl<'h, 'b> Request<'h, 'b> {
 
     /// Try to parse a buffer of bytes into the Request.
     pub fn parse(&mut self, buf: &'b [u8]) -> Result<usize> {
+        self.parse1(buf, DEFAULT_HTTP_VER_PARSER)
+    }
+
+    /// Try to parse a buffer of bytes into the Request using a custom `HttpVersionParser`.
+    #[inline]
+    pub fn parse1(&mut self, buf: &'b [u8], ver_parser: HttpVersionParser) -> Result<usize> {
         let orig_len = buf.len();
         let mut bytes = Bytes::new(buf);
         complete!(skip_empty_lines(&mut bytes));
         self.method = Some(complete!(parse_token(&mut bytes)));
         self.path = Some(complete!(parse_uri(&mut bytes)));
-        self.version = Some(complete!(parse_version(&mut bytes)));
+        self.version = Some(complete!(ver_parser.parse_version(&mut bytes)));
         newline!(bytes);
 
         let len = orig_len - bytes.len();
@@ -368,11 +374,17 @@ impl<'h, 'b> Response<'h, 'b> {
 
     /// Try to parse a buffer of bytes into this `Response`.
     pub fn parse(&mut self, buf: &'b [u8]) -> Result<usize> {
+        self.parse1(buf, DEFAULT_HTTP_VER_PARSER)
+    }
+
+    /// Try to parse a buffer of bytes into this `Response` using a custom `HttpVersionParser`.
+    #[inline]
+    pub fn parse1(&mut self, buf: &'b[u8], ver_parser: HttpVersionParser) -> Result<usize> {
         let orig_len = buf.len();
         let mut bytes = Bytes::new(buf);
 
         complete!(skip_empty_lines(&mut bytes));
-        self.version = Some(complete!(parse_version(&mut bytes)));
+        self.version = Some(complete!(ver_parser.parse_version(&mut bytes)));
         space!(bytes or Error::Version);
         self.code = Some(complete!(parse_code(&mut bytes)));
 
@@ -430,37 +442,62 @@ pub struct Header<'a> {
 /// ```
 pub const EMPTY_HEADER: Header<'static> = Header { name: "", value: b"" };
 
-#[inline]
-fn parse_version(bytes: &mut Bytes) -> Result<u8> {
-    if let Some(mut eight) = bytes.next_8() {
-        expect!(eight._0() => b'H' |? Err(Error::Version));
-        expect!(eight._1() => b'T' |? Err(Error::Version));
-        expect!(eight._2() => b'T' |? Err(Error::Version));
-        expect!(eight._3() => b'P' |? Err(Error::Version));
-        expect!(eight._4() => b'/' |? Err(Error::Version));
-        expect!(eight._5() => b'1' |? Err(Error::Version));
-        expect!(eight._6() => b'.' |? Err(Error::Version));
-        let v = match eight._7() {
-            b'0' => 0,
-            b'1' => 1,
-            _ => return Err(Error::Version)
-        };
-        return Ok(Status::Complete(v))
+/// Parser for HTTP like protocols which use a different protocol name in its first four bytes.
+#[derive(Copy, Clone)]
+pub struct HttpVersionParser {
+    name: [u8; 4],
+}
+
+impl HttpVersionParser {
+    /// Create a new instance of `HttpVersionParser`.
+    #[inline]
+    pub const fn new(name: [u8; 4]) -> Self {
+        Self { name }
     }
 
-    // else (but not in `else` because of borrow checker)
+    #[inline(always)]
+    fn expect_byte(actual: u8, expected: u8) -> Option<()> {
+        match actual == expected {
+            true => Some(()),
+            false => None,
+        }
+    }
 
-    // If there aren't at least 8 bytes, we still want to detect early
-    // if this is a valid version or not. If it is, we'll return Partial.
-    expect!(bytes.next() == b'H' => Err(Error::Version));
-    expect!(bytes.next() == b'T' => Err(Error::Version));
-    expect!(bytes.next() == b'T' => Err(Error::Version));
-    expect!(bytes.next() == b'P' => Err(Error::Version));
-    expect!(bytes.next() == b'/' => Err(Error::Version));
-    expect!(bytes.next() == b'1' => Err(Error::Version));
-    expect!(bytes.next() == b'.' => Err(Error::Version));
-    Ok(Status::Partial)
+    #[inline]
+    fn parse_version(&self, bytes: &mut Bytes) -> Result<u8> {
+        if let Some(mut eight) = bytes.next_8() {
+            Self::expect_byte(eight._0(), self.name[0]).ok_or(Error::Version)?;
+            Self::expect_byte(eight._1(), self.name[1]).ok_or(Error::Version)?;
+            Self::expect_byte(eight._2(), self.name[2]).ok_or(Error::Version)?;
+            Self::expect_byte(eight._3(), self.name[3]).ok_or(Error::Version)?;
+            expect!(eight._4() => b'/' |? Err(Error::Version));
+            expect!(eight._5() => b'1' |? Err(Error::Version));
+            expect!(eight._6() => b'.' |? Err(Error::Version));
+            let v = match eight._7() {
+                b'0' => 0,
+                b'1' => 1,
+                _ => return Err(Error::Version)
+            };
+            return Ok(Status::Complete(v))
+        }
+
+        // else (but not in `else` because of borrow checker)
+
+        // If there aren't at least 8 bytes, we still want to detect early
+        // if this is a valid version or not. If it is, we'll return Partial.
+        if !self.name.starts_with(&bytes.as_ref()[..min(4, bytes.len())]) {
+            return Err(Error::Version);
+        }
+        match bytes.as_ref().get(4..7) {
+            Some(x) if b"/1.".starts_with(x) => Ok(Status::Partial),
+            None => Ok(Status::Partial),
+            _ => Err(Error::Version),
+        }
+    }
 }
+
+/// Default HTTP version parser implementation.
+pub const DEFAULT_HTTP_VER_PARSER: HttpVersionParser = HttpVersionParser::new([b'H', b'T', b'T', b'P']);
 
 /// From [RFC 7230](https://tools.ietf.org/html/rfc7230):
 ///
