@@ -156,9 +156,9 @@ impl Version {
         let patch = try!(num.parse::<u32>().map_err(|e| e.to_string()));
 
         Ok(Version {
-            major,
-            minor,
-            patch,
+            major: major,
+            minor: minor,
+            patch: patch,
         })
     }
 }
