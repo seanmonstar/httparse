@@ -9,7 +9,7 @@ impl<'a> Bytes<'a> {
     #[inline]
     pub fn new(slice: &'a [u8]) -> Bytes<'a> {
         Bytes {
-            slice: slice,
+            slice,
             pos: 0
         }
     }

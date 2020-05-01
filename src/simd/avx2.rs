@@ -8,7 +8,7 @@ pub enum Scan {
 }
 
 
-pub unsafe fn parse_uri_batch_32<'a>(bytes: &mut Bytes<'a>) -> Scan {
+pub unsafe fn parse_uri_batch_32(bytes: &mut Bytes) -> Scan {
     while bytes.as_ref().len() >= 32 {
         let advance = match_url_char_32_avx(bytes.as_ref());
         bytes.advance(advance);
