@@ -64,7 +64,7 @@ impl<'a> Bytes<'a> {
 
     #[inline]
     pub fn next_8<'b>(&'b mut self) -> Option<Bytes8<'b, 'a>> {
-        if self.slice.len() > self.pos + 8 {
+        if self.slice.len() >= self.pos + 8 {
             Some(Bytes8::new(self))
         } else {
             None
