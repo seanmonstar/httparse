@@ -760,7 +760,7 @@ pub fn parse_chunk_size(buf: &[u8])
             }
             // "Linear white space" is ignored between the chunk size and the
             // extension separator token (";") due to the "implied *LWS rule".
-            b'\t' | b' ' if !in_ext & !in_chunk_size => {}
+            b'\t' | b' ' if !in_ext && !in_chunk_size => {}
             // LWS can follow the chunk size, but no more digits can come
             b'\t' | b' ' if in_chunk_size => in_chunk_size = false,
             // We allow any arbitrary octet once we are in the extension, since
