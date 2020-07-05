@@ -212,7 +212,7 @@ pub type Result<T> = result::Result<Status<T>, Error>;
 /// `Complete` is used when the buffer contained the complete value.
 /// `Partial` is used when parsing did not reach the end of the expected value,
 /// but no invalid data was found.
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Status<T> {
     /// The completed result.
     Complete(T),
@@ -275,7 +275,7 @@ impl<T> Status<T> {
 ///     }
 /// }
 /// ```
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Request<'headers, 'buf: 'headers> {
     /// The request method, such as `GET`.
     pub method: Option<&'buf str>,
@@ -342,7 +342,7 @@ fn skip_empty_lines(bytes: &mut Bytes) -> Result<()> {
 /// A parsed Response.
 ///
 /// See `Request` docs for explanation of optional values.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Response<'headers, 'buf: 'headers> {
     /// The response version, such as `HTTP/1.1`.
     pub version: Option<u8>,
@@ -407,7 +407,7 @@ impl<'h, 'b> Response<'h, 'b> {
 }
 
 /// Represents a parsed header.
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct Header<'a> {
     /// The name portion of a header.
     ///
