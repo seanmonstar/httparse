@@ -300,6 +300,8 @@ impl<'h, 'b> Request<'h, 'b> {
     }
 
     /// Try to parse a buffer of bytes into the Request.
+    /// 
+    /// Returns byte offset in `buf` to start of HTTP body.
     pub fn parse(&mut self, buf: &'b [u8]) -> Result<usize> {
         let orig_len = buf.len();
         let mut bytes = Bytes::new(buf);
