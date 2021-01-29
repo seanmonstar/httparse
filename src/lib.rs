@@ -351,6 +351,8 @@ pub struct Response<'headers, 'buf: 'headers> {
     /// The response code, such as `200`.
     pub code: Option<u16>,
     /// The response reason-phrase, such as `OK`.
+    ///
+    /// Contains an empty string if the reason-phrase was missing or contained invalid characters.
     pub reason: Option<&'buf str>,
     /// The response headers.
     pub headers: &'headers mut [Header<'buf>]
@@ -477,28 +479,38 @@ fn parse_version(bytes: &mut Bytes) -> Result<u8> {
 /// >
 /// > Non-US-ASCII content in header fields and the reason phrase
 /// > has been obsoleted and made opaque (the TEXT rule was removed).
-///
-/// Note that the following implementation deliberately rejects the obsoleted (non-US-ASCII) text range.
-///
-/// The fully compliant parser should probably just return the reason-phrase as an opaque &[u8] data
-/// and leave interpretation to user or specialized helpers (akin to .display() in std::path::Path)
 #[inline]
 fn parse_reason<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
+    let mut seen_obs_text = false;
     loop {
         let b = next!(bytes);
         if b == b'\r' {
             expect!(bytes.next() == b'\n' => Err(Error::Status));
             return Ok(Status::Complete(unsafe {
-                // all bytes up till `i` must have been HTAB / SP / VCHAR
-                str::from_utf8_unchecked(bytes.slice_skip(2))
+                let bytes = bytes.slice_skip(2);
+                if !seen_obs_text {
+                    // all bytes up till `i` must have been HTAB / SP / VCHAR
+                    str::from_utf8_unchecked(bytes)
+                } else {
+                    // obs-text characters were found, so return the fallback empty string
+                    ""
+                }
             }));
         } else if b == b'\n' {
             return Ok(Status::Complete(unsafe {
-                // all bytes up till `i` must have been HTAB / SP / VCHAR
-                str::from_utf8_unchecked(bytes.slice_skip(1))
+                let bytes = bytes.slice_skip(1);
+                if !seen_obs_text {
+                    // all bytes up till `i` must have been HTAB / SP / VCHAR
+                    str::from_utf8_unchecked(bytes)
+                } else {
+                    // obs-text characters were found, so return the fallback empty string
+                    ""
+                }
             }));
-        } else if !((b >= 0x20 && b <= 0x7E) || b == b'\t') {
+        } else if !(b == 0x09 || b == b' ' || (b >= 0x21 && b <= 0x7E) || b >= 0x80) {
             return Err(Error::Status);
+        } else if b >= 0x80 {
+            seen_obs_text = true;
         }
     }
 }
@@ -1094,8 +1106,12 @@ mod tests {
     res! {
         test_response_reason_with_obsolete_text_byte,
         RESPONSE_REASON_WITH_OBS_TEXT_BYTE,
-        Err(::Error::Status),
-        |_res| {}
+        |res| {
+            assert_eq!(res.version.unwrap(), 1);
+            assert_eq!(res.code.unwrap(), 200);
+            // Empty string fallback in case of obs-text
+            assert_eq!(res.reason.unwrap(), "");
+        }
     }
 
     res! {
