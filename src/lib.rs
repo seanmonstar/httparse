@@ -1,4 +1,4 @@
-#![doc(html_root_url = "https://docs.rs/httparse/1.3.4")]
+#![doc(html_root_url = "https://docs.rs/httparse/1.3.5")]
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
 #![cfg_attr(test, deny(warnings))]
