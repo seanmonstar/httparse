@@ -325,12 +325,12 @@ fn skip_empty_lines(bytes: &mut Bytes) -> Result<()> {
         match b {
             Some(b'\r') => {
                 // there's `\r`, so it's safe to bump 1 pos
-                unsafe { bytes.bump() };
+                bytes.bump();
                 expect!(bytes.next() == b'\n' => Err(Error::NewLine));
             },
             Some(b'\n') => {
                 // there's `\n`, so it's safe to bump 1 pos
-                unsafe { bytes.bump(); }
+                bytes.bump();
             },
             Some(..) => {
                 bytes.slice();
@@ -686,15 +686,11 @@ fn parse_headers_iter<'a, 'b>(headers: &mut &mut [Header<'a>], bytes: &'b mut By
                 expect!(bytes.next() == b'\n' => Err(Error::HeaderValue));
                 count += bytes.pos();
                 // having just check that `\r\n` exists, it's safe to skip those 2 bytes
-                unsafe {
-                    bytes.slice_skip(2)
-                }
+                bytes.slice_skip(2)
             } else if b == b'\n' {
                 count += bytes.pos();
                 // having just check that `\r\n` exists, it's safe to skip 1 byte
-                unsafe {
-                    bytes.slice_skip(1)
-                }
+                bytes.slice_skip(1)
             } else {
                 return Err(Error::HeaderValue);
             };

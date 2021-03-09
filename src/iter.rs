@@ -1,5 +1,3 @@
-use core::slice;
-
 pub struct Bytes<'a> {
     slice: &'a [u8],
     pos: usize
@@ -25,14 +23,14 @@ impl<'a> Bytes<'a> {
     }
 
     #[inline]
-    pub unsafe fn bump(&mut self) {
+    pub fn bump(&mut self) {
         debug_assert!(self.pos + 1 <= self.slice.len(), "overflow");
         self.pos += 1;
     }
 
     #[allow(unused)]
     #[inline]
-    pub unsafe fn advance(&mut self, n: usize) {
+    pub fn advance(&mut self, n: usize) {
         debug_assert!(self.pos + n <= self.slice.len(), "overflow");
         self.pos += n;
     }
@@ -45,18 +43,14 @@ impl<'a> Bytes<'a> {
     #[inline]
     pub fn slice(&mut self) -> &'a [u8] {
         // not moving position at all, so it's safe
-        unsafe {
-            self.slice_skip(0)
-        }
+        self.slice_skip(0)
     }
 
     #[inline]
-    pub unsafe fn slice_skip(&mut self, skip: usize) -> &'a [u8] {
+    pub fn slice_skip(&mut self, skip: usize) -> &'a [u8] {
         debug_assert!(self.pos >= skip);
         let head_pos = self.pos - skip;
-        let ptr = self.slice.as_ptr();
-        let head = slice::from_raw_parts(ptr, head_pos);
-        let tail = slice::from_raw_parts(ptr.offset(self.pos as isize), self.slice.len() - self.pos);
+        let (head, tail) = self.slice.split_at(head_pos);
         self.pos = 0;
         self.slice = tail;
         head
@@ -84,13 +78,9 @@ impl<'a> Iterator for Bytes<'a> {
 
     #[inline]
     fn next(&mut self) -> Option<u8> {
-        if self.slice.len() > self.pos {
-            let b = unsafe { *self.slice.get_unchecked(self.pos) };
-            self.pos += 1;
-            Some(b)
-        } else {
-            None
-        }
+        let b = *self.slice.get(self.pos)?;
+        self.pos += 1;
+        Some(b)
     }
 }
 
@@ -165,7 +155,7 @@ mod tests {
         let slice = [0u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 9u8];
         let mut bytes = Bytes::new(&slice);
         // Skip 3 of them.
-        unsafe { bytes.advance(3); }
+        bytes.advance(3);
         // There should be 7 left, not enough to call next_8.
         assert!(bytes.next_8().is_none());
     }
@@ -176,7 +166,7 @@ mod tests {
         let slice = [0u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 9u8];
         let mut bytes = Bytes::new(&slice);
         // Skip 2 of them.
-        unsafe { bytes.advance(2); }
+        bytes.advance(2);
         // There should be 8 left, just enough to call next_8.
         let ret = bytes.next_8();
         assert!(ret.is_some());
@@ -198,7 +188,7 @@ mod tests {
         let slice = [0u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 9u8];
         let mut bytes = Bytes::new(&slice);
         // Skip 1 of them.
-        unsafe { bytes.advance(1); }
+        bytes.advance(1);
         // There should be 9 left, more than enough to call next_8.
         let ret = bytes.next_8();
         assert!(ret.is_some());
