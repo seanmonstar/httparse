@@ -79,9 +79,14 @@ impl<'a> Iterator for Bytes<'a> {
 
     #[inline]
     fn next(&mut self) -> Option<u8> {
-        let b = *self.slice.get(self.pos)?;
-        self.pos += 1;
-        Some(b)
+        let b = self.slice.get(self.pos);
+        if b.is_some() {
+            self.pos += 1;
+            Some(*b.unwrap())
+        }
+        else {
+            None
+        }
     }
 }
 
