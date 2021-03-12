@@ -50,7 +50,8 @@ impl<'a> Bytes<'a> {
     pub fn slice_skip(&mut self, skip: usize) -> &'a [u8] {
         debug_assert!(self.pos >= skip);
         let head_pos = self.pos - skip;
-        let (head, tail) = self.slice.split_at(head_pos);
+        let head = &self.slice[..head_pos];
+        let tail = &self.slice[self.pos..];
         self.pos = 0;
         self.slice = tail;
         head

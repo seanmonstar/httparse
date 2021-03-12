@@ -486,22 +486,22 @@ fn parse_reason<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
         let b = next!(bytes);
         if b == b'\r' {
             expect!(bytes.next() == b'\n' => Err(Error::Status));
-            return Ok(Status::Complete(unsafe {
+            return Ok(Status::Complete({
                 let bytes = bytes.slice_skip(2);
                 if !seen_obs_text {
                     // all bytes up till `i` must have been HTAB / SP / VCHAR
-                    str::from_utf8_unchecked(bytes)
+                    unsafe { str::from_utf8_unchecked(bytes) }
                 } else {
                     // obs-text characters were found, so return the fallback empty string
                     ""
                 }
             }));
         } else if b == b'\n' {
-            return Ok(Status::Complete(unsafe {
+            return Ok(Status::Complete({
                 let bytes = bytes.slice_skip(1);
                 if !seen_obs_text {
                     // all bytes up till `i` must have been HTAB / SP / VCHAR
-                    str::from_utf8_unchecked(bytes)
+                    unsafe { str::from_utf8_unchecked(bytes) }
                 } else {
                     // obs-text characters were found, so return the fallback empty string
                     ""
