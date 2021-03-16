@@ -1,4 +1,3 @@
-#![doc(html_root_url = "https://docs.rs/httparse/1.3.5")]
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
 #![cfg_attr(test, deny(warnings))]
@@ -65,7 +64,7 @@ static URI_MAP: [bool; 256] = byte_map![
 //  \0                            \n
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 //  commands
-    0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
 //  \w !  "  #  $  %  &  '  (  )  *  +  ,  -  .  /
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1,
 //  0  1  2  3  4  5  6  7  8  9  :  ;  <  =  >  ?
