@@ -24,9 +24,24 @@ unsafe fn match_url_char_16_sse(buf: &[u8]) -> usize {
     let ptr = buf.as_ptr();
 
     let LSH: __m128i = _mm_set1_epi8(0x0f);
+
+    // The first 0xf8 corresponds to the 8 first rows of the first column
+    // of URI_MAP in the crate's root, with the first row corresponding to bit 0
+    // and the 8th row corresponding to bit 7.
+    // The 8 first rows give 0 0 0 1 1 1 1 1, which is 0xf8 (with least
+    // significant digit on the left).
+    //
+    // Another example just to drive the point home: in column 15, '>' is
+    // rejected, so the values are 0 0 1 0 1 1 1 1, which gives us 0xf4.
+    //
+    // Thanks to Vlad Krasnov for explaining this stuff to us mere mortals in
+    // a GitHub comment!
+    //
+    // https://github.com/seanmonstar/httparse/pull/89#issuecomment-807039219
+
     let URI: __m128i = _mm_setr_epi8(
-        0xb8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
-        0xfc, 0xfc, 0xfc, 0x7c, 0x54, 0x7c, 0xd4, 0x7c,
+        0xf8, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc, 0xfc,
+        0xfc, 0xfc, 0xfc, 0xfc, 0xf4, 0xfc, 0xf4, 0x7c,
     );
     let ARF: __m128i = _mm_setr_epi8(
         0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80,
