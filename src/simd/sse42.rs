@@ -97,3 +97,41 @@ unsafe fn match_header_value_char_16_sse(buf: &[u8]) -> usize {
 
     _tzcnt_u32(res) as usize
 }
+
+#[test]
+fn sse_code_matches_uri_chars_table() {
+    match super::detect() {
+        super::SSE_42 | super::AVX_2_AND_SSE_42 => {},
+        _ => return,
+    }
+
+    unsafe {
+        assert!(byte_is_allowed(b'_'));
+
+        for (b, allowed) in ::URI_MAP.iter().cloned().enumerate() {
+            assert_eq!(
+                byte_is_allowed(b as u8), allowed,
+                "byte_is_allowed({:?}) should be {:?}", b, allowed,
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+unsafe fn byte_is_allowed(byte: u8) -> bool {
+    let slice = [
+        b'_', b'_', b'_', b'_',
+        b'_', b'_', b'_', b'_',
+        b'_', b'_', byte, b'_',
+        b'_', b'_', b'_', b'_',
+    ];
+    let mut bytes = Bytes::new(&slice);
+
+    parse_uri_batch_16(&mut bytes);
+
+    match bytes.pos() {
+        16 => true,
+        10 => false,
+        _ => unreachable!(),
+    }
+}
