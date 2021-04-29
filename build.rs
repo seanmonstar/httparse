@@ -117,6 +117,7 @@ struct Version {
 }
 
 impl Version {
+    #[allow(deprecated)] // necessary for 1.10.0 compatibility with `r#try!`
     fn parse(mut s: &str) -> Result<Version, String> {
         if !s.starts_with("rustc ") {
             return Err(format!("unrecognized version string: {}", s));
@@ -135,7 +136,7 @@ impl Version {
             }
             num.push(c);
         }
-        let major = try!(num.parse::<u32>().map_err(|e| e.to_string()));
+        let major = r#try!(num.parse::<u32>().map_err(|e| e.to_string()));
 
         num.clear();
         for c in parts[1].chars() {
@@ -144,7 +145,7 @@ impl Version {
             }
             num.push(c);
         }
-        let minor = try!(num.parse::<u32>().map_err(|e| e.to_string()));
+        let minor = r#try!(num.parse::<u32>().map_err(|e| e.to_string()));
 
         num.clear();
         for c in parts[2].chars() {
@@ -153,7 +154,7 @@ impl Version {
             }
             num.push(c);
         }
-        let patch = try!(num.parse::<u32>().map_err(|e| e.to_string()));
+        let patch = r#try!(num.parse::<u32>().map_err(|e| e.to_string()));
 
         Ok(Version {
             major: major,
