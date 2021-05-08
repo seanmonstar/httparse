@@ -24,26 +24,6 @@ macro_rules! req {
     )
 }
 
-macro_rules! res {
-    ($name:ident, $buf:expr, |$arg:ident| $body:expr) => {
-        res! {$name, $buf, Ok(Status::Complete($buf.len())), |$arg| $body }
-    };
-    ($name:ident, $buf:expr, $len:expr, |$arg:ident| $body:expr) => {
-        #[test]
-        fn $name() {
-            let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
-            let mut res = Response::new(&mut headers[..]);
-            let status = res.parse($buf.as_ref());
-            assert_eq!(status, $len);
-            closure(res);
-
-            fn closure($arg: Response) {
-                $body
-            }
-        }
-    };
-}
-
 req! {
     urltest_001,
     b"GET /bar;par?b HTTP/1.1\r\nHost: foo\r\n\r\n",
@@ -3709,18 +3689,5 @@ req! {
         assert_eq!(req.headers.len(), 1);
         assert_eq!(req.headers[0].name, "Host");
         assert_eq!(req.headers[0].value, b"gfwsl.geforce.com");
-    }
-}
-
-res! {
-    response_nocr,
-    b"HTTP/1.0 200\nContent-type: text/html\n\n",
-    |res| {
-        assert_eq!(res.version.unwrap(), 0);
-        assert_eq!(res.code.unwrap(), 200);
-        assert_eq!(res.reason.unwrap(), "");
-        assert_eq!(res.headers.len(), 1);
-        assert_eq!(res.headers[0].name, "Content-type");
-        assert_eq!(res.headers[0].value, b"text/html");
     }
 }
