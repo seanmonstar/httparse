@@ -432,7 +432,10 @@ impl<'h, 'b> Response<'h, 'b> {
                 bytes.slice();
                 self.reason = Some("");
             },
-            b'\n' => self.reason = Some(""),
+            b'\n' => {
+                bytes.slice();
+                self.reason = Some("");
+            }
             _ => return Err(Error::Status),
         }
 
@@ -1195,6 +1198,19 @@ mod tests {
         test_response_empty_lines_prefix_lf_only,
         b"\n\nHTTP/1.1 200 OK\n\n",
         |_res| {}
+    }
+
+    res! {
+        test_response_no_cr,
+        b"HTTP/1.0 200\nContent-type: text/html\n\n",
+        |res| {
+            assert_eq!(res.version.unwrap(), 0);
+            assert_eq!(res.code.unwrap(), 200);
+            assert_eq!(res.reason.unwrap(), "");
+            assert_eq!(res.headers.len(), 1);
+            assert_eq!(res.headers[0].name, "Content-type");
+            assert_eq!(res.headers[0].value, b"text/html");
+        }
     }
 
     static RESPONSE_WITH_WHITESPACE_BETWEEN_HEADER_NAME_AND_COLON: &'static [u8] =
