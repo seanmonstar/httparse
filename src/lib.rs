@@ -560,7 +560,10 @@ impl<'h, 'b> Response<'h, 'b> {
                 bytes.slice();
                 seif.reason = Some("");
             }
-            b'\n' => seif.reason = Some(""),
+            b'\n' => {
+                bytes.slice();
+                seif.reason = Some("");
+            }
             _ => return (seif, Err(Error::Status)),
         }
 
