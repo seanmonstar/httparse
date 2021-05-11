@@ -1,8 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
 #![cfg_attr(test, deny(warnings))]
-// we can't upgrade while supporting Rust 1.3
-#![allow(deprecated)]
 #![cfg_attr(httparse_min_2018, allow(rust_2018_idioms))]
 
 //! # httparse
@@ -26,7 +24,7 @@
 #[cfg(feature = "std")]
 extern crate std as core;
 
-use core::{fmt, result, str, slice};
+use core::{fmt, mem::MaybeUninit, result, slice, str};
 
 use iter::Bytes;
 
@@ -273,6 +271,15 @@ impl ParserConfig {
     ) -> Result<usize> {
         response.parse_with_config(buf, self)
     }
+
+    /// Parses a response, but with uninitialized headers
+    pub fn parse_response_with_uninit_headers<'h, 'b>(
+        &self,
+        headers: &'h mut [MaybeUninit<Header<'b>>],
+        buf: &'b [u8],
+    ) -> (Response<'h, 'b>, Result<usize>) {
+        Response::parse_with_config_and_uninit_headers(headers, buf, self)
+    }
 }
 
 /// A parsed Request.
@@ -345,6 +352,75 @@ impl<'h, 'b> Request<'h, 'b> {
 
         Ok(Status::Complete(len + headers_len))
     }
+
+    /// Try to parse a buffer of bytes, but use uninitialized
+    /// buffer for headers
+    pub fn with_uninit_headers(
+        mut headers: &'h mut [MaybeUninit<Header<'b>>],
+        buf: &'b [u8],
+    ) -> (Request<'h, 'b>, Result<usize>) {
+        let mut seif = Request {
+            method: None,
+            path: None,
+            version: None,
+            headers: &mut [],
+        };
+
+        let orig_len = buf.len();
+        let mut bytes = Bytes::new(buf);
+
+        match skip_empty_lines(&mut bytes) {
+            Err(e) => return (seif, Err(e)),
+            Ok(Status::Partial) => return (seif, Ok(Status::Partial)),
+            _ => {}
+        };
+
+        seif.method = match parse_token(&mut bytes) {
+            Err(e) => return (seif, Err(e)),
+            Ok(Status::Partial) => return (seif, Ok(Status::Partial)),
+            Ok(Status::Complete(v)) => Some(v),
+        };
+        seif.path = match parse_uri(&mut bytes) {
+            Err(e) => return (seif, Err(e)),
+            Ok(Status::Partial) => return (seif, Ok(Status::Partial)),
+            Ok(Status::Complete(v)) => Some(v),
+        };
+        seif.version = match parse_version(&mut bytes) {
+            Err(e) => return (seif, Err(e)),
+            Ok(Status::Partial) => return (seif, Ok(Status::Partial)),
+            Ok(Status::Complete(v)) => Some(v),
+        };
+
+        let next_byte = match bytes.next() {
+            Some(b) => b,
+            None => return (seif, Ok(Status::Partial)),
+        };
+        match next_byte {
+            b'\r' => {
+                match bytes.next() {
+                    Some(b'\n') => {}
+                    Some(_) => return (seif, Err(Error::NewLine)),
+                    None => return (seif, Ok(Status::Partial)),
+                }
+                bytes.slice()
+            }
+            b'\n' => bytes.slice(),
+            _ => return (seif, Err(Error::NewLine)),
+        };
+
+        let len = orig_len - bytes.len();
+        let headers_len =
+            match parse_headers_iter_uninit(&mut headers, &mut bytes, &ParserConfig::default()) {
+                Err(e) => return (seif, Err(e)),
+                Ok(Status::Partial) => return (seif, Ok(Status::Partial)),
+                Ok(Status::Complete(v)) => v,
+            };
+
+        /* SAFETY: `parse_headers_iter_uninit` promises it won't write garbage */
+        seif.headers = unsafe { assume_init_slice(headers) };
+
+        (seif, Ok(Status::Complete(len + headers_len)))
+    }
 }
 
 #[inline]
@@ -405,14 +481,59 @@ impl<'h, 'b> Response<'h, 'b> {
     }
 
     fn parse_with_config(&mut self, buf: &'b [u8], config: &ParserConfig) -> Result<usize> {
+        let headers: &mut [Header] = core::mem::replace(&mut self.headers, &mut []);
+        /* SAFETY: next function promises to not write garbage to headers */
+        let headers = unsafe { deinit_slice(headers) };
+        let (resp, status) = Response::parse_with_config_and_uninit_headers(headers, buf, config);
+        *self = resp;
+        return status;
+    }
+
+    /// Try to parse a buffer of bytes, but use uninitialized
+    /// buffer for headers
+    fn parse_with_config_and_uninit_headers(
+        mut headers: &'h mut [MaybeUninit<Header<'b>>],
+        buf: &'b [u8],
+        config: &ParserConfig,
+    ) -> (Response<'h, 'b>, Result<usize>) {
+        let mut seif = Response {
+            version: None,
+            code: None,
+            reason: None,
+            headers: &mut [],
+        };
+
         let orig_len = buf.len();
         let mut bytes = Bytes::new(buf);
 
-        complete!(skip_empty_lines(&mut bytes));
-        self.version = Some(complete!(parse_version(&mut bytes)));
-        space!(bytes or Error::Version);
-        self.code = Some(complete!(parse_code(&mut bytes)));
+        match skip_empty_lines(&mut bytes) {
+            Err(e) => return (seif, Err(e)),
+            Ok(Status::Partial) => return (seif, Ok(Status::Partial)),
+            _ => {}
+        }
 
+        seif.version = match parse_version(&mut bytes) {
+            Err(e) => return (seif, Err(e)),
+            Ok(Status::Partial) => return (seif, Ok(Status::Partial)),
+            Ok(Status::Complete(v)) => Some(v),
+        };
+
+        match bytes.next() {
+            Some(b' ') => {}
+            _ => return (seif, Err(Error::Version)),
+        }
+        bytes.slice();
+
+        seif.code = match parse_code(&mut bytes) {
+            Err(e) => return (seif, Err(e)),
+            Ok(Status::Partial) => return (seif, Ok(Status::Partial)),
+            Ok(Status::Complete(v)) => Some(v),
+        };
+
+        let next_byte = match bytes.next() {
+            Some(b) => b,
+            None => return (seif, Ok(Status::Partial)),
+        };
         // RFC7230 says there must be 'SP' and then reason-phrase, but admits
         // its only for legacy reasons. With the reason-phrase completely
         // optional (and preferred to be omitted) in HTTP2, we'll just
@@ -422,24 +543,37 @@ impl<'h, 'b> Response<'h, 'b> {
         // So, a SP means parse a reason-phrase.
         // A newline means go to headers.
         // Anything else we'll say is a malformed status.
-        match next!(bytes) {
+        match next_byte {
             b' ' => {
                 bytes.slice();
-                self.reason = Some(complete!(parse_reason(&mut bytes)));
-            },
+                seif.reason = match parse_reason(&mut bytes) {
+                    Err(e) => return (seif, Err(e)),
+                    Ok(Status::Partial) => return (seif, Ok(Status::Partial)),
+                    Ok(Status::Complete(v)) => Some(v),
+                };
+            }
             b'\r' => {
-                expect!(bytes.next() == b'\n' => Err(Error::Status));
+                match bytes.next() {
+                    Some(b'\n') => {}
+                    _ => return (seif, Err(Error::Status)),
+                }
                 bytes.slice();
-                self.reason = Some("");
-            },
-            b'\n' => self.reason = Some(""),
-            _ => return Err(Error::Status),
+                seif.reason = Some("");
+            }
+            b'\n' => seif.reason = Some(""),
+            _ => return (seif, Err(Error::Status)),
         }
 
-
         let len = orig_len - bytes.len();
-        let headers_len = complete!(parse_headers_iter(&mut self.headers, &mut bytes, config));
-        Ok(Status::Complete(len + headers_len))
+        let headers_len = match parse_headers_iter_uninit(&mut headers, &mut bytes, config) {
+            Err(e) => return (seif, Err(e)),
+            Ok(Status::Partial) => return (seif, Ok(Status::Partial)),
+            Ok(Status::Complete(v)) => v,
+        };
+        /* SAFETY: `parse_headers_iter_uninit` promises it won't write garbage */
+        seif.headers = unsafe { assume_init_slice(headers) };
+
+        (seif, Ok(Status::Complete(len + headers_len)))
     }
 }
 
@@ -619,9 +753,41 @@ pub fn parse_headers<'b: 'h, 'h>(
     Ok(Status::Complete((pos, dst)))
 }
 
-#[inline]
+unsafe fn deinit_slice<T>(s: &mut [T]) -> &mut [MaybeUninit<T>] {
+    let s: *mut [T] = s;
+    let s = s as *mut [MaybeUninit<T>];
+    &mut *s
+}
+unsafe fn assume_init_slice<T>(s: &mut [MaybeUninit<T>]) -> &mut [T] {
+    let s: *mut [MaybeUninit<T>] = s;
+    let s = s as *mut [T];
+    &mut *s
+}
+
 fn parse_headers_iter<'a, 'b>(
-    headers: &mut &mut [Header<'a>],
+    headers_ref: &mut &mut [Header<'a>],
+    bytes: &'b mut Bytes<'a>,
+    config: &ParserConfig,
+) -> Result<usize> {
+    let headers: &mut [Header<'a>] = core::mem::replace(headers_ref, &mut []);
+    let headers: *mut [Header<'a>] = headers;
+    let headers = headers as *mut [MaybeUninit<Header<'a>>];
+
+    /* SAFETY: `parse_headers_iter` guarantees that it won't
+     * write garbage to `headers` */
+    unsafe {
+        let mut headers: &mut [MaybeUninit<Header<'a>>] = &mut *headers;
+        let parse_result = parse_headers_iter_uninit(&mut headers, bytes, config);
+        *headers_ref = assume_init_slice(headers);
+
+        return parse_result;
+    }
+}
+
+/* GUARANTEE: this function doesn't write garbage to `headers */
+#[inline]
+fn parse_headers_iter_uninit<'a, 'b>(
+    headers: &mut &mut [MaybeUninit<Header<'a>>],
     bytes: &'b mut Bytes<'a>,
     config: &ParserConfig,
 ) -> Result<usize> {
@@ -648,25 +814,23 @@ fn parse_headers_iter<'a, 'b>(
 
             let header = match iter.next() {
                 Some(header) => header,
-                None => break 'headers
+                None => break 'headers,
             };
 
             num_headers += 1;
             // parse header name until colon
-            'name: loop {
+            let header_name: &str = 'name: loop {
                 let b = next!(bytes);
                 if b == b':' {
                     count += bytes.pos();
-                    header.name = unsafe {
-                        str::from_utf8_unchecked(bytes.slice_skip(1))
-                    };
-                    break 'name;
+                    let _name = unsafe { str::from_utf8_unchecked(bytes.slice_skip(1)) };
+                    break 'name _name;
                 } else if !is_header_name_token(b) {
                     if !config.allow_spaces_after_header_name_in_responses {
                         return Err(Error::HeaderName);
                     }
                     count += bytes.pos();
-                    header.name = unsafe { str::from_utf8_unchecked(bytes.slice_skip(1)) };
+                    let _name = unsafe { str::from_utf8_unchecked(bytes.slice_skip(1)) };
                     // eat white space between name and colon
                     'whitespace_before_colon: loop {
                         let b = next!(bytes);
@@ -677,18 +841,17 @@ fn parse_headers_iter<'a, 'b>(
                         } else if b == b':' {
                             count += bytes.pos();
                             bytes.slice();
-                            break 'name;
+                            break 'name _name;
                         } else {
                             return Err(Error::HeaderName);
                         }
                     }
                 }
-            }
+            };
 
             let mut b;
 
             'value: loop {
-
                 // eat white space between colon and value
                 'whitespace_after_colon: loop {
                     b = next!(bytes);
@@ -709,13 +872,13 @@ fn parse_headers_iter<'a, 'b>(
                 simd::match_header_value_vectored(bytes);
 
                 macro_rules! check {
-                    ($bytes:ident, $i:ident) => ({
+                    ($bytes:ident, $i:ident) => {{
                         b = $bytes.$i();
                         if !is_header_value_token(b) {
                             break 'value;
                         }
-                    });
-                    ($bytes:ident) => ({
+                    }};
+                    ($bytes:ident) => {{
                         check!($bytes, _0);
                         check!($bytes, _1);
                         check!($bytes, _2);
@@ -724,7 +887,7 @@ fn parse_headers_iter<'a, 'b>(
                         check!($bytes, _5);
                         check!($bytes, _6);
                         check!($bytes, _7);
-                    })
+                    }};
                 }
                 while let Some(mut bytes8) = bytes.next_8() {
                     check!(bytes8);
@@ -738,31 +901,35 @@ fn parse_headers_iter<'a, 'b>(
             }
 
             //found_ctl
-            let value_slice : &[u8] = if b == b'\r' {
+            let value_slice: &[u8] = if b == b'\r' {
                 expect!(bytes.next() == b'\n' => Err(Error::HeaderValue));
                 count += bytes.pos();
                 // having just check that `\r\n` exists, it's safe to skip those 2 bytes
-                unsafe {
-                    bytes.slice_skip(2)
-                }
+                unsafe { bytes.slice_skip(2) }
             } else if b == b'\n' {
                 count += bytes.pos();
                 // having just check that `\r\n` exists, it's safe to skip 1 byte
-                unsafe {
-                    bytes.slice_skip(1)
-                }
+                unsafe { bytes.slice_skip(1) }
             } else {
                 return Err(Error::HeaderValue);
             };
+
+            let header_value: &[u8];
             // trim trailing whitespace in the header
-            if let Some(last_visible) = value_slice.iter().rposition(|b| *b != b' ' && *b != b'\t' ) {
+            if let Some(last_visible) = value_slice.iter().rposition(|b| *b != b' ' && *b != b'\t')
+            {
                 // There is at least one non-whitespace character.
-                header.value = &value_slice[0..last_visible+1];
+                header_value = &value_slice[0..last_visible + 1];
             } else {
                 // There is no non-whitespace character. This can only happen when value_slice is
                 // empty.
-                header.value = value_slice;
+                header_value = value_slice;
             }
+
+            *header = MaybeUninit::new(Header {
+                name: header_name,
+                value: header_value,
+            });
         }
     } // drop iter
 
