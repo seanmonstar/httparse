@@ -504,7 +504,7 @@ impl<'h, 'b> Response<'h, 'b> {
 }
 
 /// Represents a parsed header.
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Header<'a> {
     /// The name portion of a header.
     ///
@@ -515,6 +515,19 @@ pub struct Header<'a> {
     /// While headers **should** be ASCII-US, the specification allows for
     /// values that may not be, and so the value is stored as bytes.
     pub value: &'a [u8],
+}
+
+impl<'a> fmt::Debug for Header<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut f = f.debug_struct("Header");
+        f.field("name", &self.name);
+        if let Ok(value) = str::from_utf8(self.value) {
+            f.field("value", &value);
+        } else {
+            f.field("value", &self.value);
+        }
+        f.finish()
+    }
 }
 
 /// An empty header, useful for constructing a `Header` array to pass in for
