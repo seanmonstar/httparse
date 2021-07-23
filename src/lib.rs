@@ -354,12 +354,12 @@ fn skip_empty_lines(bytes: &mut Bytes) -> Result<()> {
         match b {
             Some(b'\r') => {
                 // there's `\r`, so it's safe to bump 1 pos
-                unsafe { bytes.bump() };
+                bytes.bump();
                 expect!(bytes.next() == b'\n' => Err(Error::NewLine));
             },
             Some(b'\n') => {
                 // there's `\n`, so it's safe to bump 1 pos
-                unsafe { bytes.bump(); }
+                bytes.bump();
             },
             Some(..) => {
                 bytes.slice();
@@ -522,22 +522,22 @@ fn parse_reason<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
         let b = next!(bytes);
         if b == b'\r' {
             expect!(bytes.next() == b'\n' => Err(Error::Status));
-            return Ok(Status::Complete(unsafe {
+            return Ok(Status::Complete({
                 let bytes = bytes.slice_skip(2);
                 if !seen_obs_text {
                     // all bytes up till `i` must have been HTAB / SP / VCHAR
-                    str::from_utf8_unchecked(bytes)
+                    unsafe { str::from_utf8_unchecked(bytes) }
                 } else {
                     // obs-text characters were found, so return the fallback empty string
                     ""
                 }
             }));
         } else if b == b'\n' {
-            return Ok(Status::Complete(unsafe {
+            return Ok(Status::Complete({
                 let bytes = bytes.slice_skip(1);
                 if !seen_obs_text {
                     // all bytes up till `i` must have been HTAB / SP / VCHAR
-                    str::from_utf8_unchecked(bytes)
+                    unsafe { str::from_utf8_unchecked(bytes) }
                 } else {
                     // obs-text characters were found, so return the fallback empty string
                     ""
@@ -745,15 +745,11 @@ fn parse_headers_iter<'a, 'b>(
                 expect!(bytes.next() == b'\n' => Err(Error::HeaderValue));
                 count += bytes.pos();
                 // having just check that `\r\n` exists, it's safe to skip those 2 bytes
-                unsafe {
-                    bytes.slice_skip(2)
-                }
+                bytes.slice_skip(2)
             } else if b == b'\n' {
                 count += bytes.pos();
                 // having just check that `\r\n` exists, it's safe to skip 1 byte
-                unsafe {
-                    bytes.slice_skip(1)
-                }
+                bytes.slice_skip(1)
             } else {
                 return Err(Error::HeaderValue);
             };

@@ -65,7 +65,7 @@ unsafe fn match_url_char_32_avx(buf: &[u8]) -> usize {
 }
 
 #[cfg(target_arch = "x86")]
-unsafe fn match_url_char_32_avx(_: &[u8]) -> usize {
+fn match_url_char_32_avx(_: &[u8]) -> usize {
     unreachable!("AVX2 detection should be disabled for x86");
 }
 
@@ -114,7 +114,7 @@ unsafe fn match_header_value_char_32_avx(buf: &[u8]) -> usize {
 }
 
 #[cfg(target_arch = "x86")]
-unsafe fn match_header_value_char_32_avx(_: &[u8]) -> usize {
+fn match_header_value_char_32_avx(_: &[u8]) -> usize {
     unreachable!("AVX2 detection should be disabled for x86");
 }
 
