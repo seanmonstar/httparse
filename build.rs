@@ -45,7 +45,7 @@ fn enable_simd(version: Version) {
     }
 
     let env_disable = "CARGO_CFG_HTTPARSE_DISABLE_SIMD";
-    if env::var_os(env_disable).is_some() {
+    if var_is(env_disable, "1") {
         println!("cargo:warning=detected {} environment variable, disabling SIMD", env_disable);
         return;
     }
@@ -74,7 +74,7 @@ fn enable_simd(version: Version) {
 
 
     let env_runtime_only = "CARGO_CFG_HTTPARSE_DISABLE_SIMD_COMPILETIME";
-    if env::var_os(env_runtime_only).is_some() {
+    if var_is(env_runtime_only, "1") {
         println!("cargo:warning=detected {} environment variable, using runtime SIMD detection only", env_runtime_only);
         return;
     }
@@ -163,3 +163,9 @@ impl Version {
     }
 }
 
+fn var_is(key: &str, val: &str) -> bool {
+    match env::var(key) {
+        Ok(v) => v == val,
+        Err(_) => false,
+    }
+}
