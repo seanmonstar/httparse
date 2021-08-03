@@ -119,7 +119,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: 1.10.0
+          toolchain: 1.36.0
           override: true
 
       # Only build, dev-dependencies don't compile on 1.10
