@@ -1,7 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
 #![cfg_attr(test, deny(warnings))]
-#![cfg_attr(httparse_min_2018, allow(rust_2018_idioms))]
 
 //! # httparse
 //!
@@ -630,9 +629,9 @@ fn parse_uri<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
 
 #[inline]
 fn parse_code(bytes: &mut Bytes) -> Result<u16> {
-    let hundreds = expect!(bytes.next() == b'0'...b'9' => Err(Error::Status));
-    let tens = expect!(bytes.next() == b'0'...b'9' => Err(Error::Status));
-    let ones = expect!(bytes.next() == b'0'...b'9' => Err(Error::Status));
+    let hundreds = expect!(bytes.next() == b'0'..=b'9' => Err(Error::Status));
+    let tens = expect!(bytes.next() == b'0'..=b'9' => Err(Error::Status));
+    let ones = expect!(bytes.next() == b'0'..=b'9' => Err(Error::Status));
 
     Ok(Status::Complete((hundreds - b'0') as u16 * 100 +
         (tens - b'0') as u16 * 10 +
@@ -901,7 +900,7 @@ pub fn parse_chunk_size(buf: &[u8])
     loop {
         let b = next!(bytes);
         match b {
-            b'0' ... b'9' if in_chunk_size => {
+            b'0' ..= b'9' if in_chunk_size => {
                 if count > 15 {
                     return Err(InvalidChunkSize);
                 }
@@ -909,7 +908,7 @@ pub fn parse_chunk_size(buf: &[u8])
                 size *= RADIX;
                 size += (b - b'0') as u64;
             },
-            b'a' ... b'f' if in_chunk_size => {
+            b'a' ..= b'f' if in_chunk_size => {
                 if count > 15 {
                     return Err(InvalidChunkSize);
                 }
@@ -917,7 +916,7 @@ pub fn parse_chunk_size(buf: &[u8])
                 size *= RADIX;
                 size += (b + 10 - b'a') as u64;
             }
-            b'A' ... b'F' if in_chunk_size => {
+            b'A' ..= b'F' if in_chunk_size => {
                 if count > 15 {
                     return Err(InvalidChunkSize);
                 }
