@@ -1,8 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
 #![cfg_attr(test, deny(warnings))]
-// we can't upgrade while supporting Rust 1.3
-#![allow(deprecated)]
 #![cfg_attr(httparse_min_2018, allow(rust_2018_idioms))]
 
 //! # httparse
@@ -1365,14 +1363,5 @@ mod tests {
         assert_eq!(parse_chunk_size(b"1ffffffffffffffff\r\n"), Err(::InvalidChunkSize));
         assert_eq!(parse_chunk_size(b"Affffffffffffffff\r\n"), Err(::InvalidChunkSize));
         assert_eq!(parse_chunk_size(b"fffffffffffffffff\r\n"), Err(::InvalidChunkSize));
-    }
-
-    #[cfg(feature = "std")]
-    #[test]
-    fn test_std_error() {
-        use super::Error;
-        use std::error::Error as StdError;
-        let err = Error::HeaderName;
-        assert_eq!(err.to_string(), err.description());
     }
 }
