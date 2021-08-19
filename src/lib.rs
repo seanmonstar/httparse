@@ -364,7 +364,14 @@ impl<'h, 'b> Request<'h, 'b> {
         unsafe {
             let headers: *mut [Header] = headers;
             let headers = headers as *mut [MaybeUninit<Header>];
-            return self.parse_with_uninit_headers(buf, &mut *headers);
+            match self.parse_with_uninit_headers(buf, &mut *headers) {
+                Ok(Status::Complete(idx)) => Ok(Status::Complete(idx)),
+                other => {
+                    // put the original headers back
+                    self.headers = &mut *(headers as *mut [Header]);
+                    other
+                },
+            }
         }
     }
 }
@@ -432,7 +439,14 @@ impl<'h, 'b> Response<'h, 'b> {
         unsafe {
             let headers: *mut [Header] = headers;
             let headers = headers as *mut [MaybeUninit<Header>];
-            self.parse_with_config_and_uninit_headers(buf, config, &mut *headers)
+            match self.parse_with_config_and_uninit_headers(buf, config, &mut *headers) {
+                Ok(Status::Complete(idx)) => Ok(Status::Complete(idx)),
+                other => {
+                    // put the original headers back
+                    self.headers = &mut *(headers as *mut [Header]);
+                    other
+                },
+            }
         }
     }
 
@@ -1100,6 +1114,7 @@ mod tests {
             assert_eq!(req.method.unwrap(), "GET");
             assert_eq!(req.path.unwrap(), "/");
             assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers.len(), 2);
             assert_eq!(req.headers[0].name, "Host");
             assert_eq!(req.headers[0].value, b"foo.com");
             assert_eq!(req.headers[1].name, "User-Agent");
@@ -1118,6 +1133,20 @@ mod tests {
         test_request_partial_version,
         b"GET / HTTP/1.", Ok(Status::Partial),
         |_req| {}
+    }
+
+    req! {
+        test_request_partial_parses_headers_as_much_as_it_can,
+        b"GET / HTTP/1.1\r\nHost: yolo\r\n",
+        Ok(::Status::Partial),
+        |req| {
+            assert_eq!(req.method.unwrap(), "GET");
+            assert_eq!(req.path.unwrap(), "/");
+            assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers.len(), NUM_OF_HEADERS); // doesn't slice since not Complete
+            assert_eq!(req.headers[0].name, "Host");
+            assert_eq!(req.headers[0].value, b"yolo");
+        }
     }
 
     req! {
@@ -1284,6 +1313,20 @@ mod tests {
         b"HTTP/1.1 200",
         Ok(Status::Partial),
         |_res| {}
+    }
+
+    res! {
+        test_response_partial_parses_headers_as_much_as_it_can,
+        b"HTTP/1.1 200 OK\r\nServer: yolo\r\n",
+        Ok(::Status::Partial),
+        |res| {
+            assert_eq!(res.version.unwrap(), 1);
+            assert_eq!(res.code.unwrap(), 200);
+            assert_eq!(res.reason.unwrap(), "OK");
+            assert_eq!(res.headers.len(), NUM_OF_HEADERS); // doesn't slice since not Complete
+            assert_eq!(res.headers[0].name, "Server");
+            assert_eq!(res.headers[0].value, b"yolo");
+        }
     }
 
     res! {
