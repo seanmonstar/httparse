@@ -244,6 +244,7 @@ impl<T> Status<T> {
 #[derive(Clone, Debug, Default)]
 pub struct ParserConfig {
     allow_spaces_after_header_name_in_responses: bool,
+    allow_obsolete_multiline_headers_in_responses: bool,
 }
 
 impl ParserConfig {
@@ -254,6 +255,24 @@ impl ParserConfig {
     ) -> &mut Self {
         self.allow_spaces_after_header_name_in_responses = value;
         self
+    }
+
+    /// Sets whether obsolete multiline headers should be allowed.
+    ///
+    /// This is an obsolete part of HTTP/1. Use at your own risk. If you are
+    /// building an HTTP library, the newlines (`\r` and `\n`) should be
+    /// replaced by spaces before handing the header value to the user.
+    pub fn allow_obsolete_multiline_headers_in_responses(
+        &mut self,
+        value: bool,
+    ) -> &mut Self {
+        self.allow_obsolete_multiline_headers_in_responses = value;
+        self
+    }
+
+    /// Whether obsolete multiline headers should be allowed.
+    pub fn obsolete_multiline_headers_in_responses_are_allowed(&self) -> bool {
+        self.allow_obsolete_multiline_headers_in_responses
     }
 
     /// Parses a response with the given config.
@@ -802,8 +821,7 @@ fn parse_headers_iter_uninit<'a, 'b>(
 
         let mut b;
 
-        'value: loop {
-
+        let value_slice = 'value: loop {
             // eat white space between colon and value
             'whitespace_after_colon: loop {
                 b = next!(bytes);
@@ -813,73 +831,131 @@ fn parse_headers_iter_uninit<'a, 'b>(
                     continue 'whitespace_after_colon;
                 } else {
                     if !is_header_value_token(b) {
-                        break 'value;
+                        if b == b'\r' {
+                            expect!(bytes.next() == b'\n' => Err(Error::HeaderValue));
+                        } else if b != b'\n' {
+                            return Err(Error::HeaderValue);
+                        }
+
+                        if config.allow_obsolete_multiline_headers_in_responses {
+                            match bytes.peek() {
+                                None => {
+                                    // Next byte may be a space, in which case that header
+                                    // is using obsolete line folding, so we may have more
+                                    // whitespace to skip after colon.
+                                    return Ok(Status::Partial);
+                                }
+                                Some(b' ') | Some(b'\t') => {
+                                    // The space will be consumed next iteration.
+                                    continue 'whitespace_after_colon;
+                                }
+                                _ => {
+                                    // There is another byte after the end of the line,
+                                    // but it's not whitespace, so it's probably another
+                                    // header or the final line return. This header is thus
+                                    // empty.
+                                },
+                            }
+                        }
+
+                        count += bytes.pos();
+                        let whitespace_slice = bytes.slice();
+
+                        // This produces an empty slice that points to the beginning
+                        // of the whitespace.
+                        break 'value &whitespace_slice[0..0];
                     }
                     break 'whitespace_after_colon;
                 }
             }
 
-            // parse value till EOL
+            'value_lines: loop {
+                // parse value till EOL
 
-            simd::match_header_value_vectored(bytes);
+                simd::match_header_value_vectored(bytes);
 
-            macro_rules! check {
-                ($bytes:ident, $i:ident) => ({
-                    b = $bytes.$i();
-                    if !is_header_value_token(b) {
-                        break 'value;
+                'value_line: loop {
+                    if let Some(mut bytes8) = bytes.next_8() {
+                        macro_rules! check {
+                            ($bytes:ident, $i:ident) => ({
+                                b = $bytes.$i();
+                                if !is_header_value_token(b) {
+                                    break 'value_line;
+                                }
+                            });
+                            ($bytes:ident) => ({
+                                check!($bytes, _0);
+                                check!($bytes, _1);
+                                check!($bytes, _2);
+                                check!($bytes, _3);
+                                check!($bytes, _4);
+                                check!($bytes, _5);
+                                check!($bytes, _6);
+                                check!($bytes, _7);
+                            })
+                        }
+
+                        check!(bytes8);
+
+                        continue 'value_line;
                     }
-                });
-                ($bytes:ident) => ({
-                    check!($bytes, _0);
-                    check!($bytes, _1);
-                    check!($bytes, _2);
-                    check!($bytes, _3);
-                    check!($bytes, _4);
-                    check!($bytes, _5);
-                    check!($bytes, _6);
-                    check!($bytes, _7);
-                })
-            }
-            while let Some(mut bytes8) = bytes.next_8() {
-                check!(bytes8);
-            }
-            loop {
-                b = next!(bytes);
-                if !is_header_value_token(b) {
-                    break 'value;
+
+                    b = next!(bytes);
+                    if !is_header_value_token(b) {
+                        break 'value_line;
+                    }
+                }
+
+                //found_ctl
+                let skip = if b == b'\r' {
+                    expect!(bytes.next() == b'\n' => Err(Error::HeaderValue));
+                    2
+                } else if b == b'\n' {
+                    1
+                } else {
+                    return Err(Error::HeaderValue);
+                };
+
+                if config.allow_obsolete_multiline_headers_in_responses {
+                    match bytes.peek() {
+                        None => {
+                            // Next byte may be a space, in which case that header
+                            // may be using line folding, so we need more data.
+                            return Ok(Status::Partial);
+                        }
+                        Some(b' ') | Some(b'\t') => {
+                            // The space will be consumed next iteration.
+                            continue 'value_lines;
+                        }
+                        _ => {
+                            // There is another byte after the end of the line,
+                            // but it's not a space, so it's probably another
+                            // header or the final line return. We are thus done
+                            // with this current header.
+                        },
+                    }
+                }
+
+                count += bytes.pos();
+                // having just checked that a newline exists, it's safe to skip it.
+                unsafe {
+                    break 'value bytes.slice_skip(skip);
                 }
             }
-        }
-
-        //found_ctl
-        let value_slice : &[u8] = if b == b'\r' {
-            expect!(bytes.next() == b'\n' => Err(Error::HeaderValue));
-            count += bytes.pos();
-            // having just check that `\r\n` exists, it's safe to skip those 2 bytes
-            unsafe {
-                bytes.slice_skip(2)
-            }
-        } else if b == b'\n' {
-            count += bytes.pos();
-            // having just check that `\r\n` exists, it's safe to skip 1 byte
-            unsafe {
-                bytes.slice_skip(1)
-            }
-        } else {
-            return Err(Error::HeaderValue);
         };
 
-        let header_value: &[u8];
         // trim trailing whitespace in the header
-        if let Some(last_visible) = value_slice.iter().rposition(|b| *b != b' ' && *b != b'\t' ) {
+        let header_value = if let Some(last_visible) = value_slice
+            .iter()
+            .rposition(|b| *b != b' ' && *b != b'\t' && *b != b'\r' && *b != b'\n')
+        {
             // There is at least one non-whitespace character.
-            header_value = &value_slice[0..last_visible+1];
+            &value_slice[0..last_visible+1]
         } else {
             // There is no non-whitespace character. This can only happen when value_slice is
             // empty.
-            header_value = value_slice;
-        }
+            value_slice
+        };
 
         *uninit_header = MaybeUninit::new(Header {
             name: header_name,
@@ -1387,6 +1463,122 @@ mod tests {
         let result = request.parse(REQUEST_WITH_WHITESPACE_BETWEEN_HEADER_NAME_AND_COLON);
 
         assert_eq!(result, Err(::Error::HeaderName));
+    }
+
+    static RESPONSE_WITH_OBSOLETE_LINE_FOLDING_AT_START: &'static [u8] =
+        b"HTTP/1.1 200 OK\r\nLine-Folded-Header: \r\n   \r\n hello there\r\n\r\n";
+
+    #[test]
+    fn test_forbid_response_with_obsolete_line_folding_at_start() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut response = Response::new(&mut headers[..]);
+        let result = response.parse(RESPONSE_WITH_OBSOLETE_LINE_FOLDING_AT_START);
+
+        assert_eq!(result, Err(::Error::HeaderName));
+    }
+
+    #[test]
+    fn test_allow_response_with_obsolete_line_folding_at_start() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut response = Response::new(&mut headers[..]);
+        let result = ::ParserConfig::default()
+            .allow_obsolete_multiline_headers_in_responses(true)
+            .parse_response(&mut response, RESPONSE_WITH_OBSOLETE_LINE_FOLDING_AT_START);
+
+        assert_eq!(result, Ok(Status::Complete(RESPONSE_WITH_OBSOLETE_LINE_FOLDING_AT_START.len())));
+        assert_eq!(response.version.unwrap(), 1);
+        assert_eq!(response.code.unwrap(), 200);
+        assert_eq!(response.reason.unwrap(), "OK");
+        assert_eq!(response.headers.len(), 1);
+        assert_eq!(response.headers[0].name, "Line-Folded-Header");
+        assert_eq!(response.headers[0].value, &b"hello there"[..]);
+    }
+
+    static RESPONSE_WITH_OBSOLETE_LINE_FOLDING_AT_END: &'static [u8] =
+        b"HTTP/1.1 200 OK\r\nLine-Folded-Header: hello there\r\n   \r\n \r\n\r\n";
+
+    #[test]
+    fn test_forbid_response_with_obsolete_line_folding_at_end() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut response = Response::new(&mut headers[..]);
+        let result = response.parse(RESPONSE_WITH_OBSOLETE_LINE_FOLDING_AT_END);
+
+        assert_eq!(result, Err(::Error::HeaderName));
+    }
+
+    #[test]
+    fn test_allow_response_with_obsolete_line_folding_at_end() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut response = Response::new(&mut headers[..]);
+        let result = ::ParserConfig::default()
+            .allow_obsolete_multiline_headers_in_responses(true)
+            .parse_response(&mut response, RESPONSE_WITH_OBSOLETE_LINE_FOLDING_AT_END);
+
+        assert_eq!(result, Ok(Status::Complete(RESPONSE_WITH_OBSOLETE_LINE_FOLDING_AT_END.len())));
+        assert_eq!(response.version.unwrap(), 1);
+        assert_eq!(response.code.unwrap(), 200);
+        assert_eq!(response.reason.unwrap(), "OK");
+        assert_eq!(response.headers.len(), 1);
+        assert_eq!(response.headers[0].name, "Line-Folded-Header");
+        assert_eq!(response.headers[0].value, &b"hello there"[..]);
+    }
+
+    static RESPONSE_WITH_OBSOLETE_LINE_FOLDING_IN_MIDDLE: &'static [u8] =
+        b"HTTP/1.1 200 OK\r\nLine-Folded-Header: hello  \r\n \r\n there\r\n\r\n";
+
+    #[test]
+    fn test_forbid_response_with_obsolete_line_folding_in_middle() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut response = Response::new(&mut headers[..]);
+        let result = response.parse(RESPONSE_WITH_OBSOLETE_LINE_FOLDING_IN_MIDDLE);
+
+        assert_eq!(result, Err(::Error::HeaderName));
+    }
+
+    #[test]
+    fn test_allow_response_with_obsolete_line_folding_in_middle() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut response = Response::new(&mut headers[..]);
+        let result = ::ParserConfig::default()
+            .allow_obsolete_multiline_headers_in_responses(true)
+            .parse_response(&mut response, RESPONSE_WITH_OBSOLETE_LINE_FOLDING_IN_MIDDLE);
+
+        assert_eq!(result, Ok(Status::Complete(RESPONSE_WITH_OBSOLETE_LINE_FOLDING_IN_MIDDLE.len())));
+        assert_eq!(response.version.unwrap(), 1);
+        assert_eq!(response.code.unwrap(), 200);
+        assert_eq!(response.reason.unwrap(), "OK");
+        assert_eq!(response.headers.len(), 1);
+        assert_eq!(response.headers[0].name, "Line-Folded-Header");
+        assert_eq!(response.headers[0].value, &b"hello  \r\n \r\n there"[..]);
+    }
+
+    static RESPONSE_WITH_OBSOLETE_LINE_FOLDING_IN_EMPTY_HEADER: &'static [u8] =
+        b"HTTP/1.1 200 OK\r\nLine-Folded-Header:   \r\n \r\n \r\n\r\n";
+
+    #[test]
+    fn test_forbid_response_with_obsolete_line_folding_in_empty_header() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut response = Response::new(&mut headers[..]);
+        let result = response.parse(RESPONSE_WITH_OBSOLETE_LINE_FOLDING_IN_EMPTY_HEADER);
+
+        assert_eq!(result, Err(::Error::HeaderName));
+    }
+
+    #[test]
+    fn test_allow_response_with_obsolete_line_folding_in_empty_header() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut response = Response::new(&mut headers[..]);
+        let result = ::ParserConfig::default()
+            .allow_obsolete_multiline_headers_in_responses(true)
+            .parse_response(&mut response, RESPONSE_WITH_OBSOLETE_LINE_FOLDING_IN_EMPTY_HEADER);
+
+        assert_eq!(result, Ok(Status::Complete(RESPONSE_WITH_OBSOLETE_LINE_FOLDING_IN_EMPTY_HEADER.len())));
+        assert_eq!(response.version.unwrap(), 1);
+        assert_eq!(response.code.unwrap(), 200);
+        assert_eq!(response.reason.unwrap(), "OK");
+        assert_eq!(response.headers.len(), 1);
+        assert_eq!(response.headers[0].name, "Line-Folded-Header");
+        assert_eq!(response.headers[0].value, &b""[..]);
     }
 
     #[test]
