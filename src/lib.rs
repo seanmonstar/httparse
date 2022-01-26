@@ -262,6 +262,24 @@ impl ParserConfig {
     /// This is an obsolete part of HTTP/1. Use at your own risk. If you are
     /// building an HTTP library, the newlines (`\r` and `\n`) should be
     /// replaced by spaces before handing the header value to the user.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// let buf = b"HTTP/1.1 200 OK\r\nFolded-Header: hello\r\n there \r\n\r\n";
+    /// let mut headers = [httparse::EMPTY_HEADER; 16];
+    /// let mut response = httparse::Response::new(&mut headers);
+    ///
+    /// let res = httparse::ParserConfig::default()
+    ///     .allow_obsolete_multiline_headers_in_responses(true)
+    ///     .parse_response(&mut response, buf);
+    ///
+    /// assert_eq!(res, Ok(httparse::Status::Complete(buf.len())));
+    ///
+    /// assert_eq!(response.headers.len(), 1);
+    /// assert_eq!(response.headers[0].name, "Folded-Header");
+    /// assert_eq!(response.headers[0].value, b"hello\r\n there");
+    /// ```
     pub fn allow_obsolete_multiline_headers_in_responses(
         &mut self,
         value: bool,
