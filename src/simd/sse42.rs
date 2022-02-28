@@ -1,6 +1,6 @@
 use ::iter::Bytes;
 
-pub unsafe fn parse_uri_batch_16<'a>(bytes: &mut Bytes<'a>) {
+pub unsafe fn parse_uri_batch_16(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 16 {
         let advance = match_url_char_16_sse(bytes.as_ref());
         bytes.advance(advance);
