@@ -358,7 +358,7 @@ impl<'h, 'b> Request<'h, 'b> {
             method: None,
             path: None,
             version: None,
-            headers: headers,
+            headers,
         }
     }
 
@@ -461,7 +461,7 @@ impl<'h, 'b> Response<'h, 'b> {
             version: None,
             code: None,
             reason: None,
-            headers: headers,
+            headers,
         }
     }
 
@@ -650,7 +650,7 @@ fn parse_reason<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
                     ""
                 }
             }));
-        } else if !(b == 0x09 || b == b' ' || (b >= 0x21 && b <= 0x7E) || b >= 0x80) {
+        } else if !(b == 0x09 || b == b' ' || (0x21..=0x7E).contains(&b) || b >= 0x80) {
             return Err(Error::Status);
         } else if b >= 0x80 {
             seen_obs_text = true;
@@ -748,7 +748,7 @@ unsafe fn deinit_slice_mut<'a, 'b, T>(s: &'a mut &'b mut [T]) -> &'a mut &'b mut
     let s = s as *mut &mut [MaybeUninit<T>];
     &mut *s
 }
-unsafe fn assume_init_slice<'a, T>(s: &'a mut [MaybeUninit<T>]) -> &'a mut [T] {
+unsafe fn assume_init_slice<T>(s: &mut [MaybeUninit<T>]) -> &mut [T] {
     let s: *mut [MaybeUninit<T>] = s;
     let s = s as *mut [T];
     &mut *s

@@ -8,7 +8,7 @@ pub enum Scan {
 }
 
 
-pub unsafe fn parse_uri_batch_32<'a>(bytes: &mut Bytes<'a>) -> Scan {
+pub unsafe fn parse_uri_batch_32(bytes: &mut Bytes) -> Scan {
     while bytes.as_ref().len() >= 32 {
         let advance = match_url_char_32_avx(bytes.as_ref());
         bytes.advance(advance);
@@ -59,7 +59,7 @@ unsafe fn match_url_char_32_avx(buf: &[u8]) -> usize {
     let bits = _mm256_and_si256(_mm256_shuffle_epi8(ARF, cols), rbms);
 
     let v = _mm256_cmpeq_epi8(bits, _mm256_setzero_si256());
-    let r = 0xffffffff_00000000 | _mm256_movemask_epi8(v) as u64;
+    let r = 0xffff_ffff_0000_0000 | _mm256_movemask_epi8(v) as u64;
 
     _tzcnt_u64(r) as usize
 }
@@ -109,7 +109,7 @@ unsafe fn match_header_value_char_32_avx(buf: &[u8]) -> usize {
     let del = _mm256_cmpeq_epi8(dat, DEL);
     let bit = _mm256_andnot_si256(del, _mm256_or_si256(low, tab));
     let rev = _mm256_cmpeq_epi8(bit, _mm256_setzero_si256());
-    let res = 0xffffffff_00000000 | _mm256_movemask_epi8(rev) as u64;
+    let res = 0xffff_ffff_0000_0000 | _mm256_movemask_epi8(rev) as u64;
 
     _tzcnt_u64(res) as usize
 }
