@@ -245,6 +245,8 @@ impl<T> Status<T> {
 pub struct ParserConfig {
     allow_spaces_after_header_name_in_responses: bool,
     allow_obsolete_multiline_headers_in_responses: bool,
+    allow_multiple_spaces_in_request_line_delimiters: bool,
+    allow_multiple_spaces_in_response_status_delimiters: bool,
 }
 
 impl ParserConfig {
@@ -255,6 +257,53 @@ impl ParserConfig {
     ) -> &mut Self {
         self.allow_spaces_after_header_name_in_responses = value;
         self
+    }
+
+    /// Sets whether multiple spaces are allowed as delimiters in request lines.
+    ///
+    /// # Background
+    ///
+    /// The [latest version of the HTTP/1.1 spec][spec] allows implementations to parse multiple
+    /// whitespace characters in place of the `SP` delimiters in the request line, including:
+    ///
+    /// > SP, HTAB, VT (%x0B), FF (%x0C), or bare CR
+    ///
+    /// This option relaxes the parser to allow for multiple spaces, but does *not* allow the
+    /// request line to contain the other mentioned whitespace characters.
+    ///
+    /// [spec]: https://httpwg.org/http-core/draft-ietf-httpbis-messaging-latest.html#rfc.section.3.p.3
+    pub fn allow_multiple_spaces_in_request_line_delimiters(&mut self, value: bool) -> &mut Self {
+        self.allow_multiple_spaces_in_request_line_delimiters = value;
+        self
+    }
+
+    /// Whether multiple spaces are allowed as delimiters in request lines.
+    pub fn multiple_spaces_in_request_line_delimiters_are_allowed(&self) -> bool {
+        self.allow_multiple_spaces_in_request_line_delimiters
+    }
+
+    /// Sets whether multiple spaces are allowed as delimiters in response status lines.
+    ///
+    /// # Background
+    ///
+    /// The [latest version of the HTTP/1.1 spec][spec] allows implementations to parse multiple
+    /// whitespace characters in place of the `SP` delimiters in the response status line,
+    /// including:
+    ///
+    /// > SP, HTAB, VT (%x0B), FF (%x0C), or bare CR
+    ///
+    /// This option relaxes the parser to allow for multiple spaces, but does *not* allow the status
+    /// line to contain the other mentioned whitespace characters.
+    ///
+    /// [spec]: https://httpwg.org/http-core/draft-ietf-httpbis-messaging-latest.html#rfc.section.4.p.3
+    pub fn allow_multiple_spaces_in_response_status_delimiters(&mut self, value: bool) -> &mut Self {
+        self.allow_multiple_spaces_in_response_status_delimiters = value;
+        self
+    }
+
+    /// Whether multiple spaces are allowed as delimiters in response status lines.
+    pub fn multiple_spaces_in_response_status_delimiters_are_allowed(&self) -> bool {
+        self.allow_multiple_spaces_in_response_status_delimiters
     }
 
     /// Sets whether obsolete multiline headers should be allowed.
@@ -291,6 +340,25 @@ impl ParserConfig {
     /// Whether obsolete multiline headers should be allowed.
     pub fn obsolete_multiline_headers_in_responses_are_allowed(&self) -> bool {
         self.allow_obsolete_multiline_headers_in_responses
+    }
+
+    /// Parses a request with the given config.
+    pub fn parse_request<'headers, 'buf>(
+        &self,
+        request: &mut Request<'headers, 'buf>,
+        buf: &'buf [u8],
+    ) -> Result<usize> {
+        request.parse_with_config(buf, self)
+    }
+
+    /// Parses a request with the given config and buffer for headers
+    pub fn parse_request_with_uninit_headers<'headers, 'buf>(
+        &self,
+        request: &mut Request<'headers, 'buf>,
+        buf: &'buf [u8],
+        headers: &'headers mut [MaybeUninit<Header<'buf>>],
+    ) -> Result<usize> {
+        request.parse_with_config_and_uninit_headers(buf, self, headers)
     }
 
     /// Parses a response with the given config.
@@ -362,20 +430,23 @@ impl<'h, 'b> Request<'h, 'b> {
         }
     }
 
-    /// Try to parse a buffer of bytes into the Request,
-    /// except use an uninitialized slice of `Header`s.
-    ///
-    /// For more information, see `parse`
-    pub fn parse_with_uninit_headers(
+    fn parse_with_config_and_uninit_headers(
         &mut self,
         buf: &'b [u8],
+        config: &ParserConfig,
         mut headers: &'h mut [MaybeUninit<Header<'b>>],
     ) -> Result<usize> {
     let orig_len = buf.len();
         let mut bytes = Bytes::new(buf);
         complete!(skip_empty_lines(&mut bytes));
         self.method = Some(complete!(parse_token(&mut bytes)));
+        if config.allow_multiple_spaces_in_request_line_delimiters {
+            complete!(skip_spaces(&mut bytes));
+        }
         self.path = Some(complete!(parse_uri(&mut bytes)));
+        if config.allow_multiple_spaces_in_request_line_delimiters {
+            complete!(skip_spaces(&mut bytes));
+        }
         self.version = Some(complete!(parse_version(&mut bytes)));
         newline!(bytes);
 
@@ -391,17 +462,26 @@ impl<'h, 'b> Request<'h, 'b> {
         Ok(Status::Complete(len + headers_len))
     }
 
-    /// Try to parse a buffer of bytes into the Request.
+    /// Try to parse a buffer of bytes into the Request,
+    /// except use an uninitialized slice of `Header`s.
     ///
-    /// Returns byte offset in `buf` to start of HTTP body.
-    pub fn parse(&mut self, buf: &'b [u8]) -> Result<usize> {
+    /// For more information, see `parse`
+    pub fn parse_with_uninit_headers(
+        &mut self,
+        buf: &'b [u8],
+        headers: &'h mut [MaybeUninit<Header<'b>>],
+    ) -> Result<usize> {
+        self.parse_with_config_and_uninit_headers(buf, &Default::default(), headers)
+    }
+
+    fn parse_with_config(&mut self, buf: &'b [u8], config: &ParserConfig) -> Result<usize> {
         let headers = mem::replace(&mut self.headers, &mut []);
 
         /* SAFETY: see `parse_headers_iter_uninit` guarantees */
         unsafe {
             let headers: *mut [Header] = headers;
             let headers = headers as *mut [MaybeUninit<Header>];
-            match self.parse_with_uninit_headers(buf, &mut *headers) {
+            match self.parse_with_config_and_uninit_headers(buf, config, &mut *headers) {
                 Ok(Status::Complete(idx)) => Ok(Status::Complete(idx)),
                 other => {
                     // put the original headers back
@@ -410,6 +490,13 @@ impl<'h, 'b> Request<'h, 'b> {
                 },
             }
         }
+    }
+
+    /// Try to parse a buffer of bytes into the Request.
+    ///
+    /// Returns byte offset in `buf` to start of HTTP body.
+    pub fn parse(&mut self, buf: &'b [u8]) -> Result<usize> {
+        self.parse_with_config(buf, &Default::default())
     }
 }
 
@@ -432,6 +519,24 @@ fn skip_empty_lines(bytes: &mut Bytes) -> Result<()> {
                 return Ok(Status::Complete(()));
             },
             None => return Ok(Status::Partial)
+        }
+    }
+}
+
+#[inline]
+fn skip_spaces(bytes: &mut Bytes) -> Result<()> {
+    loop {
+        let b = bytes.peek();
+        match b {
+            Some(b' ') => {
+                // there's ` `, so it's safe to bump 1 pos
+                unsafe { bytes.bump() };
+            }
+            Some(..) => {
+                bytes.slice();
+                return Ok(Status::Complete(()));
+            }
+            None => return Ok(Status::Partial),
         }
     }
 }
@@ -499,6 +604,9 @@ impl<'h, 'b> Response<'h, 'b> {
         complete!(skip_empty_lines(&mut bytes));
         self.version = Some(complete!(parse_version(&mut bytes)));
         space!(bytes or Error::Version);
+        if config.allow_multiple_spaces_in_response_status_delimiters {
+            complete!(skip_spaces(&mut bytes));
+        }
         self.code = Some(complete!(parse_code(&mut bytes)));
 
         // RFC7230 says there must be 'SP' and then reason-phrase, but admits
@@ -512,6 +620,9 @@ impl<'h, 'b> Response<'h, 'b> {
         // Anything else we'll say is a malformed status.
         match next!(bytes) {
             b' ' => {
+                if config.allow_multiple_spaces_in_response_status_delimiters {
+                    complete!(skip_spaces(&mut bytes));
+                }
                 bytes.slice();
                 self.reason = Some(complete!(parse_reason(&mut bytes)));
             },
@@ -1661,5 +1772,131 @@ mod tests {
         assert_eq!(parse_chunk_size(b"1ffffffffffffffff\r\n"), Err(::InvalidChunkSize));
         assert_eq!(parse_chunk_size(b"Affffffffffffffff\r\n"), Err(::InvalidChunkSize));
         assert_eq!(parse_chunk_size(b"fffffffffffffffff\r\n"), Err(::InvalidChunkSize));
+    }
+
+    static RESPONSE_WITH_MULTIPLE_SPACE_DELIMITERS: &'static [u8] =
+        b"HTTP/1.1   200  OK\r\n\r\n";
+
+    #[test]
+    fn test_forbid_response_with_multiple_space_delimiters() {
+        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+        let mut response = Response::new(&mut headers[..]);
+        let result = response.parse(RESPONSE_WITH_MULTIPLE_SPACE_DELIMITERS);
+
+        assert_eq!(result, Err(::Error::Status));
+    }
+
+    #[test]
+    fn test_allow_response_with_multiple_space_delimiters() {
+        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+        let mut response = Response::new(&mut headers[..]);
+        let result = ::ParserConfig::default()
+            .allow_multiple_spaces_in_response_status_delimiters(true)
+            .parse_response(&mut response, RESPONSE_WITH_MULTIPLE_SPACE_DELIMITERS);
+
+        assert_eq!(result, Ok(Status::Complete(RESPONSE_WITH_MULTIPLE_SPACE_DELIMITERS.len())));
+        assert_eq!(response.version.unwrap(), 1);
+        assert_eq!(response.code.unwrap(), 200);
+        assert_eq!(response.reason.unwrap(), "OK");
+        assert_eq!(response.headers.len(), 0);
+    }
+
+    /// This is technically allowed by the spec, but we only support multiple spaces as an option,
+    /// not stray `\r`s.
+    static RESPONSE_WITH_WEIRD_WHITESPACE_DELIMITERS: &'static [u8] =
+        b"HTTP/1.1 200\rOK\r\n\r\n";
+
+    #[test]
+    fn test_forbid_response_with_weird_whitespace_delimiters() {
+        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+        let mut response = Response::new(&mut headers[..]);
+        let result = response.parse(RESPONSE_WITH_WEIRD_WHITESPACE_DELIMITERS);
+
+        assert_eq!(result, Err(::Error::Status));
+    }
+
+    #[test]
+    fn test_still_forbid_response_with_weird_whitespace_delimiters() {
+        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+        let mut response = Response::new(&mut headers[..]);
+        let result = ::ParserConfig::default()
+            .allow_multiple_spaces_in_response_status_delimiters(true)
+            .parse_response(&mut response, RESPONSE_WITH_WEIRD_WHITESPACE_DELIMITERS);
+        assert_eq!(result, Err(::Error::Status));
+    }
+
+    static REQUEST_WITH_MULTIPLE_SPACE_DELIMITERS: &'static [u8] =
+        b"GET  /    HTTP/1.1\r\n\r\n";
+
+    #[test]
+    fn test_forbid_request_with_multiple_space_delimiters() {
+        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+        let mut request = Request::new(&mut headers[..]);
+        let result = request.parse(REQUEST_WITH_MULTIPLE_SPACE_DELIMITERS);
+
+        assert_eq!(result, Err(::Error::Token));
+    }
+
+    #[test]
+    fn test_allow_request_with_multiple_space_delimiters() {
+        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+        let mut request = Request::new(&mut headers[..]);
+        let result = ::ParserConfig::default()
+            .allow_multiple_spaces_in_request_line_delimiters(true)
+            .parse_request(&mut request, REQUEST_WITH_MULTIPLE_SPACE_DELIMITERS);
+
+        assert_eq!(result, Ok(Status::Complete(REQUEST_WITH_MULTIPLE_SPACE_DELIMITERS.len())));
+        assert_eq!(request.method.unwrap(), "GET");
+        assert_eq!(request.path.unwrap(), "/");
+        assert_eq!(request.version.unwrap(), 1);
+        assert_eq!(request.headers.len(), 0);
+    }
+
+    /// This is technically allowed by the spec, but we only support multiple spaces as an option,
+    /// not stray `\r`s.
+    static REQUEST_WITH_WEIRD_WHITESPACE_DELIMITERS: &'static [u8] =
+        b"GET\r/\rHTTP/1.1\r\n\r\n";
+
+    #[test]
+    fn test_forbid_request_with_weird_whitespace_delimiters() {
+        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+        let mut request = Request::new(&mut headers[..]);
+        let result = request.parse(REQUEST_WITH_WEIRD_WHITESPACE_DELIMITERS);
+
+        assert_eq!(result, Err(::Error::Token));
+    }
+
+    #[test]
+    fn test_still_forbid_request_with_weird_whitespace_delimiters() {
+        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+        let mut request = Request::new(&mut headers[..]);
+        let result = ::ParserConfig::default()
+            .allow_multiple_spaces_in_request_line_delimiters(true)
+            .parse_request(&mut request, REQUEST_WITH_WEIRD_WHITESPACE_DELIMITERS);
+        assert_eq!(result, Err(::Error::Token));
+    }
+
+    static REQUEST_WITH_MULTIPLE_SPACES_AND_BAD_PATH: &'static [u8] = b"GET   /foo>ohno HTTP/1.1\r\n\r\n";
+
+    #[test]
+    fn test_request_with_multiple_spaces_and_bad_path() {
+        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+        let mut request = Request::new(&mut headers[..]);
+        let result = ::ParserConfig::default()
+            .allow_multiple_spaces_in_request_line_delimiters(true)
+            .parse_request(&mut request, REQUEST_WITH_MULTIPLE_SPACES_AND_BAD_PATH);
+        assert_eq!(result, Err(::Error::Token));
+    }
+
+    static RESPONSE_WITH_SPACES_IN_CODE: &'static [u8] = b"HTTP/1.1 99 200 OK\r\n\r\n";
+
+    #[test]
+    fn test_response_with_spaces_in_code() {
+        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+        let mut response = Response::new(&mut headers[..]);
+        let result = ::ParserConfig::default()
+            .allow_multiple_spaces_in_response_status_delimiters(true)
+            .parse_response(&mut response, RESPONSE_WITH_SPACES_IN_CODE);
+        assert_eq!(result, Err(::Error::Status));
     }
 }
