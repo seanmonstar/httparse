@@ -18,7 +18,14 @@ default = ["std"]
 std = []
 
 [dev-dependencies]
-pico-sys = "0.0.1"
+criterion = "0.3.5"
+
+[lib]
+bench = false
+
+[[bench]]
+name = "parse"
+harness = false
 
 [profile.bench]
 lto = true
