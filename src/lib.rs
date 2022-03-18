@@ -660,6 +660,12 @@ fn parse_reason<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
 
 #[inline]
 fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
+    let b = next!(bytes);
+    if !is_token(b) {
+        // First char must be a token char, it can't be a space which would indicate an empty token.
+        return Err(Error::Token);
+    }
+
     loop {
         let b = next!(bytes);
         if b == b' ' {
@@ -675,6 +681,12 @@ fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
 
 #[inline]
 fn parse_uri<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
+    let b = next!(bytes);
+    if !is_uri_token(b) {
+        // First char must be a URI char, it can't be a space which would indicate an empty path.
+        return Err(Error::Token);
+    }
+
     simd::match_uri_vectored(bytes);
 
     loop {
@@ -1307,6 +1319,27 @@ mod tests {
         test_request_with_invalid_but_short_version,
         b"GET / HTTP/1!",
         Err(::Error::Version),
+        |_r| {}
+    }
+
+    req! {
+        test_request_with_empty_method,
+        b" / HTTP/1.1\r\n\r\n",
+        Err(::Error::Token),
+        |_r| {}
+    }
+
+    req! {
+        test_request_with_empty_path,
+        b"GET  HTTP/1.1\r\n\r\n",
+        Err(::Error::Token),
+        |_r| {}
+    }
+
+    req! {
+        test_request_with_empty_method_and_path,
+        b"  HTTP/1.1\r\n\r\n",
+        Err(::Error::Token),
         |_r| {}
     }
 
