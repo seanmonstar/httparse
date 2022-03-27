@@ -16,6 +16,7 @@ jobs:
       - test
       - simd
       - msrv
+      - miri
     steps:
       - run: exit 0
 
@@ -127,3 +128,22 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
+
+  miri:
+    name: Test with Miri
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          components: miri
+          override: true
+
+      - name: Test
+        run: MIRIFLAGS="-Zmiri-tag-raw-pointers -Zmiri-check-number-validity" cargo miri test
