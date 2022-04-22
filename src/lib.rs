@@ -247,10 +247,11 @@ pub struct ParserConfig {
     allow_obsolete_multiline_headers_in_responses: bool,
     allow_multiple_spaces_in_request_line_delimiters: bool,
     allow_multiple_spaces_in_response_status_delimiters: bool,
+    ignore_invalid_headers_in_responses: bool,
 }
 
 impl ParserConfig {
-    /// Sets whether spaces should be allowed after header name.
+    /// Sets whether spaces and tabs should be allowed after header names in responses.
     pub fn allow_spaces_after_header_name_in_responses(
         &mut self,
         value: bool,
@@ -359,6 +360,44 @@ impl ParserConfig {
         headers: &'headers mut [MaybeUninit<Header<'buf>>],
     ) -> Result<usize> {
         request.parse_with_config_and_uninit_headers(buf, self, headers)
+    }
+
+    /// Sets whether invalid header lines should be silently ignored in responses.
+    ///
+    /// This mimicks the behaviour of major browsers. You probably don't want this.
+    /// You should only want this if you are implementing a proxy whose main
+    /// purpose is to sit in front of browsers whose users access arbitrary content
+    /// which may be malformed, and they expect everything that works without
+    /// the proxy to keep working with the proxy.
+    ///
+    /// This option will prevent `ParserConfig::parse_response` from returning
+    /// an error encountered when parsing a header, except if the error was caused
+    /// by the character NUL (ASCII code 0), as Chrome specifically always reject
+    /// those, or if the error was caused by a lone character `\r`, as Firefox and
+    /// Chrome behave differently in that case.
+    ///
+    /// The ignorable errors are:
+    /// * empty header names;
+    /// * characters that are not allowed in header names, except for `\0` and `\r`;
+    /// * when `allow_spaces_after_header_name_in_responses` is not enabled,
+    ///   spaces and tabs between the header name and the colon;
+    /// * missing colon between header name and value;
+    /// * when `allow_obsolete_multiline_headers_in_responses` is not enabled,
+    ///   headers using obsolete line folding.
+    /// * characters that are not allowed in header values except for `\0` and `\r`.
+    ///
+    /// If an ignorable error is encountered, the parser tries to find the next
+    /// line in the input to resume parsing the rest of the headers. As lines
+    /// contributing to a header using obsolete line folding always start
+    /// with whitespace, those will be ignored too. An error will be emitted
+    /// nonetheless if it finds `\0` or a lone `\r` while looking for the
+    /// next line.
+    pub fn ignore_invalid_headers_in_responses(
+        &mut self,
+        value: bool,
+    ) -> &mut Self {
+        self.ignore_invalid_headers_in_responses = value;
+        self
     }
 
     /// Parses a response with the given config.
@@ -947,8 +986,40 @@ fn parse_headers_iter_uninit<'a, 'b>(
     }
 
     'headers: loop {
+        // Return the error `$err` if `ignore_invalid_headers_in_responses`
+        // is false, otherwise find the end of the current line and resume
+        // parsing on the next one.
+        macro_rules! handle_invalid_char {
+            ($bytes:ident, $b:ident, $err:ident) => {
+                if !config.ignore_invalid_headers_in_responses {
+                    return Err(Error::$err);
+                }
+
+                let mut b = $b;
+
+                loop {
+                    if b == b'\r' {
+                        expect!(bytes.next() == b'\n' => Err(Error::$err));
+                        break;
+                    }
+                    if b == b'\n' {
+                        break;
+                    }
+                    if b == b'\0' {
+                        return Err(Error::$err);
+                    }
+                    b = next!($bytes);
+                }
+
+                count += $bytes.pos();
+                $bytes.slice();
+
+                continue 'headers;
+            };
+        }
+
         // a newline here means the head is over!
-        let mut b = next!(bytes);
+        let b = next!(bytes);
         if b == b'\r' {
             expect!(bytes.next() == b'\n' => Err(Error::NewLine));
             result = Ok(Status::Complete(count + bytes.pos()));
@@ -959,13 +1030,8 @@ fn parse_headers_iter_uninit<'a, 'b>(
             break;
         }
         if !is_header_name_token(b) {
-            return Err(Error::HeaderName);
+            handle_invalid_char!(bytes, b, HeaderName);
         }
-
-        let uninit_header = match iter.next() {
-            Some(header) => header,
-            None => break 'headers
-        };
 
         // parse header name until colon
         let header_name: &str = 'name: loop {
@@ -996,7 +1062,7 @@ fn parse_headers_iter_uninit<'a, 'b>(
                 }
             }
 
-            return Err(Error::HeaderName);
+            handle_invalid_char!(bytes, b, HeaderName);
         };
 
         let mut b;
@@ -1017,7 +1083,7 @@ fn parse_headers_iter_uninit<'a, 'b>(
                 if b == b'\r' {
                     expect!(bytes.next() == b'\n' => Err(Error::HeaderValue));
                 } else if b != b'\n' {
-                    return Err(Error::HeaderValue);
+                    handle_invalid_char!(bytes, b, HeaderValue);
                 }
 
                 maybe_continue_after_obsolete_line_folding!(bytes, 'whitespace_after_colon);
@@ -1071,7 +1137,7 @@ fn parse_headers_iter_uninit<'a, 'b>(
                 } else if b == b'\n' {
                     1
                 } else {
-                    return Err(Error::HeaderValue);
+                    handle_invalid_char!(bytes, b, HeaderValue);
                 };
 
                 maybe_continue_after_obsolete_line_folding!(bytes, 'value_lines);
@@ -1082,6 +1148,11 @@ fn parse_headers_iter_uninit<'a, 'b>(
                     break 'value bytes.slice_skip(skip);
                 }
             }
+        };
+
+        let uninit_header = match iter.next() {
+            Some(header) => header,
+            None => break 'headers
         };
 
         // trim trailing whitespace in the header
@@ -1616,6 +1687,23 @@ mod tests {
         assert_eq!(response.headers[1].value, &b"baguette"[..]);
     }
 
+    #[test]
+    fn test_ignore_header_line_with_whitespaces_after_header_name() {
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut response = Response::new(&mut headers[..]);
+        let result = ::ParserConfig::default()
+            .ignore_invalid_headers_in_responses(true)
+            .parse_response(&mut response, RESPONSE_WITH_WHITESPACE_BETWEEN_HEADER_NAME_AND_COLON);
+
+        assert_eq!(result, Ok(Status::Complete(77)));
+        assert_eq!(response.version.unwrap(), 1);
+        assert_eq!(response.code.unwrap(), 200);
+        assert_eq!(response.reason.unwrap(), "OK");
+        assert_eq!(response.headers.len(), 1);
+        assert_eq!(response.headers[0].name, "Bread");
+        assert_eq!(response.headers[0].value, &b"baguette"[..]);
+    }
+
     static REQUEST_WITH_WHITESPACE_BETWEEN_HEADER_NAME_AND_COLON: &'static [u8] =
         b"GET / HTTP/1.1\r\nHost : localhost\r\n\r\n";
 
@@ -1888,17 +1976,251 @@ mod tests {
         assert_eq!(result, Err(::Error::Status));
     }
 
-    static RESPONSE_WITH_INVALID_CHAR_BETWEEN_HEADER_NAME_AND_COLON: &'static [u8] =
-        b"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Credentials\xFF: true\r\nBread: baguette\r\n\r\n";
-
     #[test]
-    fn test_forbid_response_with_invalid_char_between_header_name_and_colon() {
+    fn test_response_with_empty_header_name() {
+        const RESPONSE: &[u8] =
+            b"HTTP/1.1 200 OK\r\n: hello\r\nBread: baguette\r\n\r\n";
+
         let mut headers = [EMPTY_HEADER; 2];
         let mut response = Response::new(&mut headers[..]);
+
         let result = ::ParserConfig::default()
             .allow_spaces_after_header_name_in_responses(true)
-            .parse_response(&mut response, RESPONSE_WITH_INVALID_CHAR_BETWEEN_HEADER_NAME_AND_COLON);
-
+            .parse_response(&mut response, RESPONSE);
         assert_eq!(result, Err(::Error::HeaderName));
+
+        let result = ::ParserConfig::default()
+            .ignore_invalid_headers_in_responses(true)
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Ok(Status::Complete(45)));
+
+        assert_eq!(response.version.unwrap(), 1);
+        assert_eq!(response.code.unwrap(), 200);
+        assert_eq!(response.reason.unwrap(), "OK");
+        assert_eq!(response.headers.len(), 1);
+        assert_eq!(response.headers[0].name, "Bread");
+        assert_eq!(response.headers[0].value, &b"baguette"[..]);
+    }
+
+    #[test]
+    fn test_request_with_whitespace_between_header_name_and_colon() {
+        const REQUEST: &[u8] =
+            b"GET / HTTP/1.1\r\nAccess-Control-Allow-Credentials  : true\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut request = Request::new(&mut headers[..]);
+
+        let result = ::ParserConfig::default()
+            .allow_spaces_after_header_name_in_responses(true)
+            .parse_request(&mut request, REQUEST);
+        assert_eq!(result, Err(::Error::HeaderName));
+
+        let result = ::ParserConfig::default()
+
+            .ignore_invalid_headers_in_responses(true)
+            .parse_request(&mut request, REQUEST);
+        assert_eq!(result, Err(::Error::HeaderName));
+    }
+
+    #[test]
+    fn test_response_with_invalid_char_between_header_name_and_colon() {
+        const RESPONSE: &[u8] =
+            b"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Credentials\xFF  : true\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut response = Response::new(&mut headers[..]);
+
+        let result = ::ParserConfig::default()
+            .allow_spaces_after_header_name_in_responses(true)
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Err(::Error::HeaderName));
+
+        let result = ::ParserConfig::default()
+            .ignore_invalid_headers_in_responses(true)
+            .parse_response(&mut response, RESPONSE);
+
+        assert_eq!(result, Ok(Status::Complete(79)));
+        assert_eq!(response.version.unwrap(), 1);
+        assert_eq!(response.code.unwrap(), 200);
+        assert_eq!(response.reason.unwrap(), "OK");
+        assert_eq!(response.headers.len(), 1);
+        assert_eq!(response.headers[0].name, "Bread");
+        assert_eq!(response.headers[0].value, &b"baguette"[..]);
+    }
+
+    #[test]
+    fn test_ignore_header_line_with_missing_colon() {
+        const RESPONSE: &[u8] =
+            b"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Credentials\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut response = Response::new(&mut headers[..]);
+
+        let result = ::ParserConfig::default()
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Err(::Error::HeaderName));
+
+        let result = ::ParserConfig::default()
+            .ignore_invalid_headers_in_responses(true)
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Ok(Status::Complete(70)));
+
+        assert_eq!(response.version.unwrap(), 1);
+        assert_eq!(response.code.unwrap(), 200);
+        assert_eq!(response.reason.unwrap(), "OK");
+        assert_eq!(response.headers.len(), 1);
+        assert_eq!(response.headers[0].name, "Bread");
+        assert_eq!(response.headers[0].value, &b"baguette"[..]);
+    }
+
+    #[test]
+    fn test_header_with_missing_colon_with_folding() {
+        const RESPONSE: &[u8] =
+            b"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Credentials   \r\n hello\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut response = Response::new(&mut headers[..]);
+
+        let result = ::ParserConfig::default()
+            .allow_obsolete_multiline_headers_in_responses(true)
+            .allow_spaces_after_header_name_in_responses(true)
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Err(::Error::HeaderName));
+
+        let result = ::ParserConfig::default()
+            .ignore_invalid_headers_in_responses(true)
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Ok(Status::Complete(81)));
+
+        assert_eq!(response.version.unwrap(), 1);
+        assert_eq!(response.code.unwrap(), 200);
+        assert_eq!(response.reason.unwrap(), "OK");
+        assert_eq!(response.headers.len(), 1);
+        assert_eq!(response.headers[0].name, "Bread");
+        assert_eq!(response.headers[0].value, &b"baguette"[..]);
+    }
+
+    #[test]
+    fn test_header_with_nul_in_header_name() {
+        const RESPONSE: &[u8] =
+            b"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Cred\0entials: hello\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut response = Response::new(&mut headers[..]);
+
+        let result = ::ParserConfig::default()
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Err(::Error::HeaderName));
+
+        let result = ::ParserConfig::default()
+            .ignore_invalid_headers_in_responses(true)
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Err(::Error::HeaderName));
+    }
+
+    #[test]
+    fn test_header_with_cr_in_header_name() {
+        const RESPONSE: &[u8] =
+            b"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Cred\rentials: hello\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut response = Response::new(&mut headers[..]);
+
+        let result = ::ParserConfig::default()
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Err(::Error::HeaderName));
+
+        let result = ::ParserConfig::default()
+            .ignore_invalid_headers_in_responses(true)
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Err(::Error::HeaderName));
+    }
+
+    #[test]
+    fn test_header_with_nul_in_whitespace_before_colon() {
+        const RESPONSE: &[u8] =
+            b"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Credentials   \0: hello\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut response = Response::new(&mut headers[..]);
+
+        let result = ::ParserConfig::default()
+            .allow_spaces_after_header_name_in_responses(true)
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Err(::Error::HeaderName));
+
+        let result = ::ParserConfig::default()
+            .allow_spaces_after_header_name_in_responses(true)
+            .ignore_invalid_headers_in_responses(true)
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Err(::Error::HeaderName));
+    }
+
+    #[test]
+    fn test_header_with_nul_in_value() {
+        const RESPONSE: &[u8] =
+            b"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Credentials: hell\0o\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut response = Response::new(&mut headers[..]);
+
+        let result = ::ParserConfig::default()
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Err(::Error::HeaderValue));
+
+        let result = ::ParserConfig::default()
+            .ignore_invalid_headers_in_responses(true)
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Err(::Error::HeaderValue));
+    }
+
+    #[test]
+    fn test_header_with_invalid_char_in_value() {
+        const RESPONSE: &[u8] =
+            b"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Credentials: hell\x01o\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut response = Response::new(&mut headers[..]);
+
+        let result = ::ParserConfig::default()
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Err(::Error::HeaderValue));
+
+        let result = ::ParserConfig::default()
+            .ignore_invalid_headers_in_responses(true)
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Ok(Status::Complete(78)));
+
+        assert_eq!(response.version.unwrap(), 1);
+        assert_eq!(response.code.unwrap(), 200);
+        assert_eq!(response.reason.unwrap(), "OK");
+        assert_eq!(response.headers.len(), 1);
+        assert_eq!(response.headers[0].name, "Bread");
+        assert_eq!(response.headers[0].value, &b"baguette"[..]);
+    }
+
+    #[test]
+    fn test_header_with_invalid_char_in_value_with_folding() {
+        const RESPONSE: &[u8] =
+            b"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Credentials: hell\x01o  \n world!\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut response = Response::new(&mut headers[..]);
+
+        let result = ::ParserConfig::default()
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Err(::Error::HeaderValue));
+
+        let result = ::ParserConfig::default()
+            .ignore_invalid_headers_in_responses(true)
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Ok(Status::Complete(88)));
+
+        assert_eq!(response.version.unwrap(), 1);
+        assert_eq!(response.code.unwrap(), 200);
+        assert_eq!(response.reason.unwrap(), "OK");
+        assert_eq!(response.headers.len(), 1);
+        assert_eq!(response.headers[0].name, "Bread");
+        assert_eq!(response.headers[0].value, &b"baguette"[..]);
     }
 }
