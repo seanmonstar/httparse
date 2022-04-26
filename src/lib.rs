@@ -921,17 +921,44 @@ fn parse_headers_iter_uninit<'a, 'b>(
 
     let mut iter = autoshrink.headers.iter_mut();
 
+    macro_rules! maybe_continue_after_obsolete_line_folding {
+        ($bytes:ident, $label:lifetime) => {
+            if config.allow_obsolete_multiline_headers_in_responses {
+                match $bytes.peek() {
+                    None => {
+                        // Next byte may be a space, in which case that header
+                        // is using obsolete line folding, so we may have more
+                        // whitespace to skip after colon.
+                        return Ok(Status::Partial);
+                    }
+                    Some(b' ') | Some(b'\t') => {
+                        // The space will be consumed next iteration.
+                        continue $label;
+                    }
+                    _ => {
+                        // There is another byte after the end of the line,
+                        // but it's not whitespace, so it's probably another
+                        // header or the final line return. This header is thus
+                        // empty.
+                    },
+                }
+            }
+        }
+    }
+
     'headers: loop {
         // a newline here means the head is over!
-        let b = next!(bytes);
+        let mut b = next!(bytes);
         if b == b'\r' {
             expect!(bytes.next() == b'\n' => Err(Error::NewLine));
             result = Ok(Status::Complete(count + bytes.pos()));
             break;
-        } else if b == b'\n' {
+        }
+        if b == b'\n' {
             result = Ok(Status::Complete(count + bytes.pos()));
             break;
-        } else if !is_header_name_token(b) {
+        }
+        if !is_header_name_token(b) {
             return Err(Error::HeaderName);
         }
 
@@ -982,44 +1009,25 @@ fn parse_headers_iter_uninit<'a, 'b>(
                     count += bytes.pos();
                     bytes.slice();
                     continue 'whitespace_after_colon;
-                } else {
-                    if !is_header_value_token(b) {
-                        if b == b'\r' {
-                            expect!(bytes.next() == b'\n' => Err(Error::HeaderValue));
-                        } else if b != b'\n' {
-                            return Err(Error::HeaderValue);
-                        }
-
-                        if config.allow_obsolete_multiline_headers_in_responses {
-                            match bytes.peek() {
-                                None => {
-                                    // Next byte may be a space, in which case that header
-                                    // is using obsolete line folding, so we may have more
-                                    // whitespace to skip after colon.
-                                    return Ok(Status::Partial);
-                                }
-                                Some(b' ') | Some(b'\t') => {
-                                    // The space will be consumed next iteration.
-                                    continue 'whitespace_after_colon;
-                                }
-                                _ => {
-                                    // There is another byte after the end of the line,
-                                    // but it's not whitespace, so it's probably another
-                                    // header or the final line return. This header is thus
-                                    // empty.
-                                },
-                            }
-                        }
-
-                        count += bytes.pos();
-                        let whitespace_slice = bytes.slice();
-
-                        // This produces an empty slice that points to the beginning
-                        // of the whitespace.
-                        break 'value &whitespace_slice[0..0];
-                    }
+                }
+                if is_header_value_token(b) {
                     break 'whitespace_after_colon;
                 }
+
+                if b == b'\r' {
+                    expect!(bytes.next() == b'\n' => Err(Error::HeaderValue));
+                } else if b != b'\n' {
+                    return Err(Error::HeaderValue);
+                }
+
+                maybe_continue_after_obsolete_line_folding!(bytes, 'whitespace_after_colon);
+
+                count += bytes.pos();
+                let whitespace_slice = bytes.slice();
+
+                // This produces an empty slice that points to the beginning
+                // of the whitespace.
+                break 'value &whitespace_slice[0..0];
             }
 
             'value_lines: loop {
@@ -1036,19 +1044,16 @@ fn parse_headers_iter_uninit<'a, 'b>(
                                     break 'value_line;
                                 }
                             });
-                            ($bytes:ident) => ({
-                                check!($bytes, _0);
-                                check!($bytes, _1);
-                                check!($bytes, _2);
-                                check!($bytes, _3);
-                                check!($bytes, _4);
-                                check!($bytes, _5);
-                                check!($bytes, _6);
-                                check!($bytes, _7);
-                            })
                         }
 
-                        check!(bytes8);
+                        check!(bytes8, _0);
+                        check!(bytes8, _1);
+                        check!(bytes8, _2);
+                        check!(bytes8, _3);
+                        check!(bytes8, _4);
+                        check!(bytes8, _5);
+                        check!(bytes8, _6);
+                        check!(bytes8, _7);
 
                         continue 'value_line;
                     }
@@ -1069,25 +1074,7 @@ fn parse_headers_iter_uninit<'a, 'b>(
                     return Err(Error::HeaderValue);
                 };
 
-                if config.allow_obsolete_multiline_headers_in_responses {
-                    match bytes.peek() {
-                        None => {
-                            // Next byte may be a space, in which case that header
-                            // may be using line folding, so we need more data.
-                            return Ok(Status::Partial);
-                        }
-                        Some(b' ') | Some(b'\t') => {
-                            // The space will be consumed next iteration.
-                            continue 'value_lines;
-                        }
-                        _ => {
-                            // There is another byte after the end of the line,
-                            // but it's not a space, so it's probably another
-                            // header or the final line return. We are thus done
-                            // with this current header.
-                        },
-                    }
-                }
+                maybe_continue_after_obsolete_line_folding!(bytes, 'value_lines);
 
                 count += bytes.pos();
                 // having just checked that a newline exists, it's safe to skip it.
