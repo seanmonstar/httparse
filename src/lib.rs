@@ -451,7 +451,7 @@ pub struct Request<'headers, 'buf: 'headers> {
     pub method: Option<&'buf str>,
     /// The request path, such as `/about-us`.
     pub path: Option<&'buf str>,
-    /// The request version, such as `HTTP/1.1`.
+    /// The request minor version, such as `1` for `HTTP/1.1`.
     pub version: Option<u8>,
     /// The request headers.
     pub headers: &'headers mut [Header<'buf>]
@@ -585,7 +585,7 @@ fn skip_spaces(bytes: &mut Bytes) -> Result<()> {
 /// See `Request` docs for explanation of optional values.
 #[derive(Debug, Eq, PartialEq)]
 pub struct Response<'headers, 'buf: 'headers> {
-    /// The response version, such as `HTTP/1.1`.
+    /// The response minor version, such as `1` for `HTTP/1.1`.
     pub version: Option<u8>,
     /// The response code, such as `200`.
     pub code: Option<u16>,
