@@ -475,7 +475,7 @@ impl<'h, 'b> Request<'h, 'b> {
         config: &ParserConfig,
         mut headers: &'h mut [MaybeUninit<Header<'b>>],
     ) -> Result<usize> {
-    let orig_len = buf.len();
+        let orig_len = buf.len();
         let mut bytes = Bytes::new(buf);
         complete!(skip_empty_lines(&mut bytes));
         self.method = Some(complete!(parse_token(&mut bytes)));
