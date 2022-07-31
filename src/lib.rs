@@ -475,10 +475,19 @@ impl<'h, 'b> Request<'h, 'b> {
         config: &ParserConfig,
         mut headers: &'h mut [MaybeUninit<Header<'b>>],
     ) -> Result<usize> {
-    let orig_len = buf.len();
+        let orig_len = buf.len();
         let mut bytes = Bytes::new(buf);
         complete!(skip_empty_lines(&mut bytes));
-        self.method = Some(complete!(parse_token(&mut bytes)));
+        let method = match bytes.peek_4() {
+            Some([b'G', b'E', b'T', b' ']) => {
+                unsafe {
+                    bytes.advance_skip(4);
+                }
+                "GET"
+            }
+            _ => complete!(parse_token(&mut bytes)),
+        };
+        self.method = Some(method);
         if config.allow_multiple_spaces_in_request_line_delimiters {
             complete!(skip_spaces(&mut bytes));
         }

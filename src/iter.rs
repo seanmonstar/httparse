@@ -25,6 +25,19 @@ impl<'a> Bytes<'a> {
     }
 
     #[inline]
+    pub fn peek_4(&self) -> Option<[u8; 4]> {
+        if self.slice.len() >= self.pos + 4 {
+            let a = self.slice[self.pos];
+            let b = self.slice[self.pos + 1];
+            let c = self.slice[self.pos + 2];
+            let d = self.slice[self.pos + 3];
+            Some([a, b, c, d])
+        } else {
+            None
+        }
+    }
+
+    #[inline]
     pub unsafe fn bump(&mut self) {
         debug_assert!(self.pos < self.slice.len(), "overflow");
         self.pos += 1;
@@ -60,6 +73,16 @@ impl<'a> Bytes<'a> {
         self.pos = 0;
         self.slice = tail;
         head
+    }
+
+    #[inline]
+    pub unsafe fn advance_skip(&mut self, skip: usize) {
+        debug_assert!(self.pos + skip <= self.slice.len(), "overflow");
+        let n = self.pos + skip;
+        let ptr = self.slice.as_ptr();
+        let tail = slice::from_raw_parts(ptr.add(n), self.slice.len() - n);
+        self.pos = 0;
+        self.slice = tail;
     }
 
     #[inline]
