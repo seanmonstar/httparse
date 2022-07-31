@@ -485,6 +485,12 @@ impl<'h, 'b> Request<'h, 'b> {
                 }
                 "GET"
             }
+            Some(b"POST") if bytes.peek_ahead(4) == Some(b' ') => {
+                unsafe {
+                    bytes.advance_and_commit(5);
+                }
+                "POST"
+            }
             _ => complete!(parse_token(&mut bytes)),
         };
         self.method = Some(method);
