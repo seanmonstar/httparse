@@ -21,7 +21,21 @@ impl<'a> Bytes<'a> {
 
     #[inline]
     pub fn peek(&self) -> Option<u8> {
-        self.slice.get(self.pos).cloned()
+        self.peek_ahead(0)
+    }
+
+    #[inline]
+    pub fn peek_ahead(&self, n: usize) -> Option<u8> {
+        self.slice.get(self.pos + n).cloned()
+    }
+
+    #[inline]
+    pub fn peek_4(&self) -> Option<&[u8]> {
+        if self.slice.len() >= self.pos + 4 {
+            Some(&self.slice[self.pos..=self.pos + 3])
+        } else {
+            None
+        }
     }
 
     #[inline]
@@ -60,6 +74,16 @@ impl<'a> Bytes<'a> {
         self.pos = 0;
         self.slice = tail;
         head
+    }
+
+    #[inline]
+    pub unsafe fn advance_and_commit(&mut self, n: usize) {
+        debug_assert!(self.pos + n <= self.slice.len(), "overflow");
+        self.pos += n;
+        let ptr = self.slice.as_ptr();
+        let tail = slice::from_raw_parts(ptr.add(n), self.slice.len() - n);
+        self.pos = 0;
+        self.slice = tail;
     }
 
     #[inline]
