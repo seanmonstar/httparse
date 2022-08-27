@@ -32,7 +32,7 @@ impl<'a> Bytes<'a> {
     }
 
     #[inline]
-    pub fn peek_n<'b, U: TryFrom<&'b[u8]>>(&'b self, n: usize) -> Option<U> {
+    pub fn peek_n<U: TryFrom<&'a[u8]>>(&self, n: usize) -> Option<U> {
         self.slice.get(self.pos..self.pos + n)?.try_into().ok()
     }
 
