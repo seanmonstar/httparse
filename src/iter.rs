@@ -28,7 +28,7 @@ impl<'a> Bytes<'a> {
 
     #[inline]
     pub fn peek_ahead(&self, n: usize) -> Option<u8> {
-        self.slice.get(self.pos + n).cloned()
+        self.slice.get(self.pos + n).copied()
     }
 
     #[inline]

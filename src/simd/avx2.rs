@@ -1,4 +1,4 @@
-use ::iter::Bytes;
+use crate::iter::Bytes;
 
 pub enum Scan {
     /// Returned when an implementation finds a noteworthy token.

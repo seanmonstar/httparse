@@ -1,4 +1,4 @@
-use ::iter::Bytes;
+use crate::iter::Bytes;
 
 pub unsafe fn parse_uri_batch_16(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 16 {

@@ -10,7 +10,7 @@ documentation = "https://docs.rs/httparse"
 readme = "README.md"
 keywords = ["http", "parser", "no_std"]
 categories = ["network-programming", "no-std", "parser-implementations", "web-programming"]
-
+edition = "2018"
 build = "build.rs"
 
 [features]
