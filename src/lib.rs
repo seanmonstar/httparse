@@ -480,7 +480,7 @@ impl<'h, 'b> Request<'h, 'b> {
         complete!(skip_empty_lines(&mut bytes));
         const GET: [u8; 4] = *b"GET ";
         const POST: [u8; 4] = *b"POST";
-        let method = match bytes.peek_n::<4>() {
+        let method = match bytes.peek_n::<[u8; 4]>(4) {
             Some(GET) => {
                 unsafe {
                     bytes.advance_and_commit(4);
@@ -746,7 +746,7 @@ pub const EMPTY_HEADER: Header<'static> = Header { name: "", value: b"" };
 
 #[inline]
 fn parse_version(bytes: &mut Bytes) -> Result<u8> {
-    if let Some(eight) = bytes.peek_n::<8>() {
+    if let Some(eight) = bytes.peek_n::<[u8; 8]>(8) {
         unsafe { bytes.advance(8); }
         return match &eight {
             b"HTTP/1.0" => Ok(Status::Complete(0)),
@@ -1112,7 +1112,7 @@ fn parse_headers_iter_uninit<'a, 'b>(
                 simd::match_header_value_vectored(bytes);
 
                 'value_line: loop {
-                    if let Some(bytes8) = bytes.peek_n::<8>() {
+                    if let Some(bytes8) = bytes.peek_n::<[u8; 8]>(8) {
                         macro_rules! check {
                             ($bytes:ident, $i:literal) => ({
                                 b = $bytes[$i];

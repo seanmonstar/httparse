@@ -1,5 +1,6 @@
 use core::slice;
 use core::convert::TryInto;
+use core::convert::TryFrom;
 
 pub struct Bytes<'a> {
     slice: &'a [u8],
@@ -31,8 +32,8 @@ impl<'a> Bytes<'a> {
     }
 
     #[inline]
-    pub fn peek_n<const N: usize>(&self) -> Option<[u8; N]> {
-        self.slice.get(self.pos..self.pos + N)?.try_into().ok()
+    pub fn peek_n<'b, U: TryFrom<&'b[u8]>>(&'b self, n: usize) -> Option<U> {
+        self.slice.get(self.pos..self.pos + n)?.try_into().ok()
     }
 
     #[inline]
