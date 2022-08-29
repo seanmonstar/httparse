@@ -478,14 +478,16 @@ impl<'h, 'b> Request<'h, 'b> {
         let orig_len = buf.len();
         let mut bytes = Bytes::new(buf);
         complete!(skip_empty_lines(&mut bytes));
-        let method = match bytes.peek_4() {
-            Some(b"GET ") => {
+        const GET: [u8; 4] = *b"GET ";
+        const POST: [u8; 4] = *b"POST";
+        let method = match bytes.peek_n::<[u8; 4]>(4) {
+            Some(GET) => {
                 unsafe {
                     bytes.advance_and_commit(4);
                 }
                 "GET"
             }
-            Some(b"POST") if bytes.peek_ahead(4) == Some(b' ') => {
+            Some(POST) if bytes.peek_ahead(4) == Some(b' ') => {
                 unsafe {
                     bytes.advance_and_commit(5);
                 }
@@ -744,20 +746,13 @@ pub const EMPTY_HEADER: Header<'static> = Header { name: "", value: b"" };
 
 #[inline]
 fn parse_version(bytes: &mut Bytes) -> Result<u8> {
-    if let Some(mut eight) = bytes.next_8() {
-        expect!(eight._0() => b'H' |? Err(Error::Version));
-        expect!(eight._1() => b'T' |? Err(Error::Version));
-        expect!(eight._2() => b'T' |? Err(Error::Version));
-        expect!(eight._3() => b'P' |? Err(Error::Version));
-        expect!(eight._4() => b'/' |? Err(Error::Version));
-        expect!(eight._5() => b'1' |? Err(Error::Version));
-        expect!(eight._6() => b'.' |? Err(Error::Version));
-        let v = match eight._7() {
-            b'0' => 0,
-            b'1' => 1,
-            _ => return Err(Error::Version)
-        };
-        return Ok(Status::Complete(v))
+    if let Some(eight) = bytes.peek_n::<[u8; 8]>(8) {
+        unsafe { bytes.advance(8); }
+        return match &eight {
+            b"HTTP/1.0" => Ok(Status::Complete(0)),
+            b"HTTP/1.1" => Ok(Status::Complete(1)),
+            _ => Err(Error::Version),
+        }
     }
 
     // else (but not in `else` because of borrow checker)
@@ -1117,24 +1112,26 @@ fn parse_headers_iter_uninit<'a, 'b>(
                 simd::match_header_value_vectored(bytes);
 
                 'value_line: loop {
-                    if let Some(mut bytes8) = bytes.next_8() {
+                    if let Some(bytes8) = bytes.peek_n::<[u8; 8]>(8) {
                         macro_rules! check {
-                            ($bytes:ident, $i:ident) => ({
-                                b = $bytes.$i();
+                            ($bytes:ident, $i:literal) => ({
+                                b = $bytes[$i];
                                 if !is_header_value_token(b) {
+                                    unsafe { bytes.advance($i + 1); }
                                     break 'value_line;
                                 }
                             });
                         }
 
-                        check!(bytes8, _0);
-                        check!(bytes8, _1);
-                        check!(bytes8, _2);
-                        check!(bytes8, _3);
-                        check!(bytes8, _4);
-                        check!(bytes8, _5);
-                        check!(bytes8, _6);
-                        check!(bytes8, _7);
+                        check!(bytes8, 0);
+                        check!(bytes8, 1);
+                        check!(bytes8, 2);
+                        check!(bytes8, 3);
+                        check!(bytes8, 4);
+                        check!(bytes8, 5);
+                        check!(bytes8, 6);
+                        check!(bytes8, 7);
+                        unsafe { bytes.advance(8); }
 
                         continue 'value_line;
                     }
