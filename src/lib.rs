@@ -30,6 +30,15 @@ mod iter;
 #[macro_use] mod macros;
 mod simd;
 
+// Expose some internal functions so we can bench them individually
+#[doc(hidden)]
+pub mod _benchable {
+    pub use super::parse_uri;
+    pub use super::parse_version;
+    pub use super::parse_method;
+    pub use super::iter::Bytes;
+}
+
 /// Determines if byte is a token char.
 ///
 /// > ```notrust
@@ -476,23 +485,7 @@ impl<'h, 'b> Request<'h, 'b> {
         let orig_len = buf.len();
         let mut bytes = Bytes::new(buf);
         complete!(skip_empty_lines(&mut bytes));
-        const GET: [u8; 4] = *b"GET ";
-        const POST: [u8; 4] = *b"POST";
-        let method = match bytes.peek_n::<[u8; 4]>(4) {
-            Some(GET) => {
-                unsafe {
-                    bytes.advance_and_commit(4);
-                }
-                "GET"
-            }
-            Some(POST) if bytes.peek_ahead(4) == Some(b' ') => {
-                unsafe {
-                    bytes.advance_and_commit(5);
-                }
-                "POST"
-            }
-            _ => complete!(parse_token(&mut bytes)),
-        };
+        let method = complete!(parse_method(&mut bytes));
         self.method = Some(method);
         if config.allow_multiple_spaces_in_request_line_delimiters {
             complete!(skip_spaces(&mut bytes));
@@ -743,7 +736,9 @@ impl<'a> fmt::Debug for Header<'a> {
 pub const EMPTY_HEADER: Header<'static> = Header { name: "", value: b"" };
 
 #[inline]
-fn parse_version(bytes: &mut Bytes<'_>) -> Result<u8> {
+#[doc(hidden)]
+#[allow(missing_docs)]
+pub fn parse_version(bytes: &mut Bytes) -> Result<u8> {
     if let Some(eight) = bytes.peek_n::<[u8; 8]>(8) {
         unsafe { bytes.advance(8); }
         return match &eight {
@@ -765,6 +760,29 @@ fn parse_version(bytes: &mut Bytes<'_>) -> Result<u8> {
     expect!(bytes.next() == b'1' => Err(Error::Version));
     expect!(bytes.next() == b'.' => Err(Error::Version));
     Ok(Status::Partial)
+}
+
+#[inline]
+#[doc(hidden)]
+#[allow(missing_docs)]
+pub fn parse_method<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
+    const GET: [u8; 4] = *b"GET ";
+    const POST: [u8; 4] = *b"POST";
+    match bytes.peek_n::<[u8; 4]>(4) {
+        Some(GET) => {
+            unsafe {
+                bytes.advance_and_commit(4);
+            }
+            Ok(Status::Complete("GET"))
+        }
+        Some(POST) if bytes.peek_ahead(4) == Some(b' ') => {
+            unsafe {
+                bytes.advance_and_commit(5);
+            }
+            Ok(Status::Complete("POST"))
+        }
+        _ => parse_token(bytes),
+    }
 }
 
 /// From [RFC 7230](https://tools.ietf.org/html/rfc7230):
@@ -838,7 +856,9 @@ fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
 }
 
 #[inline]
-fn parse_uri<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
+#[doc(hidden)]
+#[allow(missing_docs)]
+pub fn parse_uri<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
     let b = next!(bytes);
     if !is_uri_token(b) {
         // First char must be a URI char, it can't be a space which would indicate an empty path.
