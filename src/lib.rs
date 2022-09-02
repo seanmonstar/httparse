@@ -91,6 +91,56 @@ fn is_uri_token(b: u8) -> bool {
     URI_MAP[b as usize]
 }
 
+// A byte-wise range-check on an entire word/block,
+// ensuring all bytes in the word satisfy
+// `33 <= x <= 126 && x != '>' && x != '<'`
+// it false negatives if the block contains '?'
+#[inline]
+fn is_uri_block(block: [u8; 8]) -> bool {
+    // 33 <= x <= 126
+    const M: u8 = 0x21;
+    const N: u8 = 0x7E;
+    const BM: u64 = u64::from_ne_bytes([M; 8]);
+    const BN: u64 = u64::from_ne_bytes([127-N; 8]);
+    const M128: u64 = u64::from_ne_bytes([128; 8]);
+    
+    let x = u64::from_ne_bytes(block); // Really just a transmute
+    let lt = x.wrapping_sub(BM) & !x; // <= m
+    let gt = x.wrapping_add(BN) | x; // >= n
+    // ((lt | gt) & M128) == 0
+    
+    // XOR checks to catch '<' & '>' for correctness
+    // 
+    // XOR can be thought of as a "distance function"
+    // (somewhat extrapolating from the `xor(x, x) = 0` identity and ∀ x != y: xor(x, y) != 0`
+    // (each u8 "xor key" providing a unique total ordering of u8)
+    // '<' and '>' have a "xor distance" of 2 (`xor('<', '>') = 2`)
+    // xor(x, '>') <= 2 => {'>', '?', '<'}
+    // xor(x, '<') <= 2 => {'<', '=', '>'}
+    // 
+    // We assume P('=') > P('?'),
+    // given well/commonly-formatted URLs with querystrings contain
+    // a single '?' but possibly many '='
+    // 
+    // Thus it's preferable/near-optimal to "xor distance" on '>',
+    // since we'll slowpath at most one block per URL
+    // 
+    // Some rust code to sanity check this yourself:
+    // ```rs
+    // fn xordist(x: u8, n: u8) -> Vec<(char, u8)> {
+    //     (0..=255).into_iter().map(|c| (c as char, c ^ x)).filter(|(_c, y)| *y <= n).collect()
+    // }
+    // (xordist(b'<', 2), xordist(b'>', 2))
+    // ```
+    const B3: u64 = u64::from_ne_bytes([3; 8]); // (dist <= 2) + 1 to wrap
+    const BGT: u64 = u64::from_ne_bytes([b'>'; 8]);
+    
+    let xgt = x ^ BGT;
+    let ltgtq = xgt.wrapping_sub(B3) & !xgt;
+    
+    ((ltgtq | lt | gt) & M128) == 0
+}
+
 static HEADER_NAME_MAP: [bool; 256] = byte_map![
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -138,6 +188,23 @@ static HEADER_VALUE_MAP: [bool; 256] = byte_map![
 #[inline]
 fn is_header_value_token(b: u8) -> bool {
     HEADER_VALUE_MAP[b as usize]
+}
+
+// A byte-wise range-check on an entire word/block,
+// ensuring all bytes in the word satisfy `32 <= x <= 126`
+#[inline]
+fn is_header_value_block(block: [u8; 8]) -> bool {
+    // 32 <= x <= 126
+    const M: u8 = 0x20;
+    const N: u8 = 0x7E;
+    const BM: u64 = u64::from_ne_bytes([M; 8]);
+    const BN: u64 = u64::from_ne_bytes([127-N; 8]);
+    const M128: u64 = u64::from_ne_bytes([128; 8]);
+    
+    let x = u64::from_ne_bytes(block); // Really just a transmute
+    let lt = x.wrapping_sub(BM) & !x; // <= m
+    let gt = x.wrapping_add(BN) | x; // >= n
+    ((lt | gt) & M128) == 0
 }
 
 /// An error in parsing.
@@ -741,11 +808,13 @@ pub const EMPTY_HEADER: Header<'static> = Header { name: "", value: b"" };
 #[allow(missing_docs)]
 // WARNING: Exported for internal benchmarks, not fit for public consumption
 pub fn parse_version(bytes: &mut Bytes) -> Result<u8> {
+    const H10: u64 = u64::from_ne_bytes(*b"HTTP/1.0");
+    const H11: u64 = u64::from_ne_bytes(*b"HTTP/1.1");
     if let Some(eight) = bytes.peek_n::<[u8; 8]>(8) {
         unsafe { bytes.advance(8); }
-        return match &eight {
-            b"HTTP/1.0" => Ok(Status::Complete(0)),
-            b"HTTP/1.1" => Ok(Status::Complete(1)),
+        return match u64::from_ne_bytes(eight) {
+            H10 => Ok(Status::Complete(0)),
+            H11 => Ok(Status::Complete(1)),
             _ => Err(Error::Version),
         }
     }
@@ -871,19 +940,29 @@ pub fn parse_uri<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
 
     simd::match_uri_vectored(bytes);
 
+    let mut b;
     loop {
-        let b = next!(bytes);
-        if b == b' ' {
-            return Ok(Status::Complete(unsafe {
-                // all bytes up till `i` must have been `is_token`.
-                str::from_utf8_unchecked(bytes.slice_skip(1))
-            }));
-        } else if !is_uri_token(b) {
-            return Err(Error::Token);
+        if let Some(bytes8) = bytes.peek_n::<[u8; 8]>(8) {
+            if is_uri_block(bytes8) {
+                unsafe { bytes.advance(8); }
+                continue;
+            }
+        }
+        b = next!(bytes);
+        if !is_uri_token(b) {
+            break;
         }
     }
+    
+    if b == b' ' {
+        return Ok(Status::Complete(unsafe {
+            // all bytes up till `i` must have been `is_token`.
+            str::from_utf8_unchecked(bytes.slice_skip(1))
+        }));
+    } else {
+        return Err(Error::Token);
+    }
 }
-
 
 #[inline]
 fn parse_code(bytes: &mut Bytes<'_>) -> Result<u16> {
@@ -1066,11 +1145,35 @@ fn parse_headers_iter_uninit<'a, 'b>(
         }
 
         // parse header name until colon
+        let mut b;
         let header_name: &str = 'name: loop {
-            let mut b = next!(bytes);
+            'name_inner: loop {
+                if let Some(bytes8) = bytes.peek_n::<[u8; 8]>(8) {
+                    macro_rules! check {
+                        ($bytes:ident, $i:literal) => ({
+                            b = $bytes[$i];
+                            if !is_header_name_token(b) {
+                                unsafe { bytes.advance($i + 1); }
+                                break 'name_inner;
+                            }
+                        });
+                    }
 
-            if is_header_name_token(b) {
-                continue 'name;
+                    check!(bytes8, 0);
+                    check!(bytes8, 1);
+                    check!(bytes8, 2);
+                    check!(bytes8, 3);
+                    check!(bytes8, 4);
+                    check!(bytes8, 5);
+                    check!(bytes8, 6);
+                    check!(bytes8, 7);
+                    unsafe { bytes.advance(8); }
+                } else {
+                    b = next!(bytes);
+                    if !is_header_name_token(b) {
+                        break 'name_inner;
+                    }
+                }
             }
 
             count += bytes.pos();
@@ -1135,29 +1238,11 @@ fn parse_headers_iter_uninit<'a, 'b>(
 
                 'value_line: loop {
                     if let Some(bytes8) = bytes.peek_n::<[u8; 8]>(8) {
-                        macro_rules! check {
-                            ($bytes:ident, $i:literal) => ({
-                                b = $bytes[$i];
-                                if !is_header_value_token(b) {
-                                    unsafe { bytes.advance($i + 1); }
-                                    break 'value_line;
-                                }
-                            });
+                        if is_header_value_block(bytes8) {
+                            unsafe { bytes.advance(8); }
+                            continue 'value_line;
                         }
-
-                        check!(bytes8, 0);
-                        check!(bytes8, 1);
-                        check!(bytes8, 2);
-                        check!(bytes8, 3);
-                        check!(bytes8, 4);
-                        check!(bytes8, 5);
-                        check!(bytes8, 6);
-                        check!(bytes8, 7);
-                        unsafe { bytes.advance(8); }
-
-                        continue 'value_line;
                     }
-
                     b = next!(bytes);
                     if !is_header_value_token(b) {
                         break 'value_line;
@@ -1292,6 +1377,8 @@ pub fn parse_chunk_size(buf: &[u8])
 #[cfg(test)]
 mod tests {
     use super::{Request, Response, Status, EMPTY_HEADER, parse_chunk_size};
+    use super::{is_header_value_block, is_uri_block};
+    // use super::{is_header_value_token, is_uri_token};
 
     const NUM_OF_HEADERS: usize = 4;
 
@@ -2256,5 +2343,52 @@ mod tests {
         assert_eq!(response.headers.len(), 1);
         assert_eq!(response.headers[0].name, "Bread");
         assert_eq!(response.headers[0].value, &b"baguette"[..]);
+    }
+
+    #[test]
+    fn test_is_header_value_block() {
+        // Print out truth table for uniform blocks
+        // for b in 0..=255_u8 {
+        //     println!("{} => {} [{}]", b, is_header_value_block([b; 8]), is_header_value_token(b))
+        // }
+
+        // 0..32 => false
+        for b in 0..32_u8 {
+            assert_eq!(is_header_value_block([b; 8]), false, "b={}", b);
+        }
+        // 32..127 => true
+        for b in 32..127_u8 {
+            assert_eq!(is_header_value_block([b; 8]), true, "b={}", b);
+        }
+        // 127..=255 => false
+        for b in 127..=255_u8 {
+            assert_eq!(is_header_value_block([b; 8]), false, "b={}", b);
+        }
+        
+        // A few sanity checks on non-uniform bytes for safe-measure
+        assert!(!is_header_value_block(*b"foo.com\n"));
+        assert!(!is_header_value_block(*b"o.com\r\nU"));
+    }
+
+    #[test]
+    fn test_is_uri_block() {
+        // Print out truth table for uniform blocks
+        // for b in 0..=255_u8 {
+        //     println!("{} => {} [{}]", b, is_uri_block([b; 8]), is_uri_token(b))
+        // }
+
+        // 0..33 => false
+        for b in 0..33_u8 {
+            assert_eq!(is_uri_block([b; 8]), false, "b={}", b);
+        }
+        // 33..127 => true if b not in { '<', '?', '>' }
+        let falsy = |b| b"<?>".contains(&b);
+        for b in 33..127_u8 {
+            assert_eq!(is_uri_block([b; 8]), !falsy(b), "b={}", b);
+        }
+        // 127..=255 => false
+        for b in 127..=255_u8 {
+            assert_eq!(is_uri_block([b; 8]), false, "b={}", b);
+        }
     }
 }
