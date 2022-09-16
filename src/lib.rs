@@ -91,7 +91,13 @@ fn is_uri_token(b: u8) -> bool {
     URI_MAP[b as usize]
 }
 
-// A byte-wise range-check on an entire word/block,
+// A const alternative to u64::from_ne_bytes to avoid bumping MSRV (1.36 => 1.44)
+// creates a u64 whose bytes are each equal to b
+const fn uniform_block(b: u8) -> u64 {
+    b as u64 * 0x01_01_01_01_01_01_01_01 // [1_u8; 8]
+}
+
+// A byte-wise range-check on an enire word/block,
 // ensuring all bytes in the word satisfy
 // `33 <= x <= 126 && x != '>' && x != '<'`
 // it false negatives if the block contains '?'
@@ -100,9 +106,9 @@ fn is_uri_block(block: [u8; 8]) -> bool {
     // 33 <= x <= 126
     const M: u8 = 0x21;
     const N: u8 = 0x7E;
-    const BM: u64 = u64::from_ne_bytes([M; 8]);
-    const BN: u64 = u64::from_ne_bytes([127-N; 8]);
-    const M128: u64 = u64::from_ne_bytes([128; 8]);
+    const BM: u64 = uniform_block(M);
+    const BN: u64 = uniform_block(127-N);
+    const M128: u64 = uniform_block(128);
     
     let x = u64::from_ne_bytes(block); // Really just a transmute
     let lt = x.wrapping_sub(BM) & !x; // <= m
@@ -132,8 +138,8 @@ fn is_uri_block(block: [u8; 8]) -> bool {
     // }
     // (xordist(b'<', 2), xordist(b'>', 2))
     // ```
-    const B3: u64 = u64::from_ne_bytes([3; 8]); // (dist <= 2) + 1 to wrap
-    const BGT: u64 = u64::from_ne_bytes([b'>'; 8]);
+    const B3: u64 = uniform_block(3); // (dist <= 2) + 1 to wrap
+    const BGT: u64 = uniform_block(b'>');
     
     let xgt = x ^ BGT;
     let ltgtq = xgt.wrapping_sub(B3) & !xgt;
@@ -197,9 +203,9 @@ fn is_header_value_block(block: [u8; 8]) -> bool {
     // 32 <= x <= 126
     const M: u8 = 0x20;
     const N: u8 = 0x7E;
-    const BM: u64 = u64::from_ne_bytes([M; 8]);
-    const BN: u64 = u64::from_ne_bytes([127-N; 8]);
-    const M128: u64 = u64::from_ne_bytes([128; 8]);
+    const BM: u64 = uniform_block(M);
+    const BN: u64 = uniform_block(127-N);
+    const M128: u64 = uniform_block(128);
     
     let x = u64::from_ne_bytes(block); // Really just a transmute
     let lt = x.wrapping_sub(BM) & !x; // <= m
@@ -808,14 +814,19 @@ pub const EMPTY_HEADER: Header<'static> = Header { name: "", value: b"" };
 #[allow(missing_docs)]
 // WARNING: Exported for internal benchmarks, not fit for public consumption
 pub fn parse_version(bytes: &mut Bytes) -> Result<u8> {
-    const H10: u64 = u64::from_ne_bytes(*b"HTTP/1.0");
-    const H11: u64 = u64::from_ne_bytes(*b"HTTP/1.1");
     if let Some(eight) = bytes.peek_n::<[u8; 8]>(8) {
+        // NOTE: should be const once MSRV >= 1.44
+        let h10: u64 = u64::from_ne_bytes(*b"HTTP/1.0");
+        let h11: u64 = u64::from_ne_bytes(*b"HTTP/1.1");
         unsafe { bytes.advance(8); }
-        return match u64::from_ne_bytes(eight) {
-            H10 => Ok(Status::Complete(0)),
-            H11 => Ok(Status::Complete(1)),
-            _ => Err(Error::Version),
+        let block = u64::from_ne_bytes(eight);
+        // NOTE: should be match once h10 & h11 are consts
+        return if block == h10 {
+            Ok(Status::Complete(0))
+        } else if block == h11 {
+            Ok(Status::Complete(1))
+        } else {
+            Err(Error::Version)
         }
     }
 
