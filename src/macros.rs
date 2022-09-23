@@ -21,6 +21,20 @@ macro_rules! expect {
     };
 }
 
+#[cfg(feature = "icap")]
+macro_rules! expect2 {
+    ($bytes:ident.next() == $pat:pat|$pat2:pat => $ret:expr) => {
+        expect2!(next!($bytes) => $pat|$pat2 |? $ret)
+    };
+    ($e:expr => $pat:pat|$pat2:pat |? $ret:expr) => {
+        match $e {
+            v@$pat => v,
+            v@$pat2 => v,
+            _ => return $ret
+        }
+    };
+}
+
 macro_rules! complete {
     ($e:expr) => {
         match $e? {

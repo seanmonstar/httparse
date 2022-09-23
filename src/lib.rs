@@ -450,6 +450,9 @@ pub struct Request<'headers, 'buf> {
     /// The request path, such as `/about-us`.
     pub path: Option<&'buf str>,
     /// The request minor version, such as `1` for `HTTP/1.1`.
+    ///
+    /// ICAP minor version is incremented by 100, such as `100` for `ICAP/1.0`
+    /// (requires the `icap` crate feature).
     pub version: Option<u8>,
     /// The request headers.
     pub headers: &'headers mut [Header<'buf>]
@@ -601,6 +604,9 @@ fn skip_spaces(bytes: &mut Bytes<'_>) -> Result<()> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct Response<'headers, 'buf> {
     /// The response minor version, such as `1` for `HTTP/1.1`.
+    ///
+    /// ICAP minor version is incremented by 100, such as `100` for `ICAP/1.0`
+    /// (requires the `icap` crate feature).
     pub version: Option<u8>,
     /// The response code, such as `200`.
     pub code: Option<u16>,
@@ -749,6 +755,8 @@ fn parse_version(bytes: &mut Bytes<'_>) -> Result<u8> {
         return match &eight {
             b"HTTP/1.0" => Ok(Status::Complete(0)),
             b"HTTP/1.1" => Ok(Status::Complete(1)),
+            #[cfg(feature = "icap")]
+            b"ICAP/1.0" => Ok(Status::Complete(100)),
             _ => Err(Error::Version),
         }
     }
@@ -757,9 +765,18 @@ fn parse_version(bytes: &mut Bytes<'_>) -> Result<u8> {
 
     // If there aren't at least 8 bytes, we still want to detect early
     // if this is a valid version or not. If it is, we'll return Partial.
-    expect!(bytes.next() == b'H' => Err(Error::Version));
-    expect!(bytes.next() == b'T' => Err(Error::Version));
-    expect!(bytes.next() == b'T' => Err(Error::Version));
+    #[cfg(not(feature = "icap"))]
+    {
+        expect!(bytes.next() == b'H' => Err(Error::Version));
+        expect!(bytes.next() == b'T' => Err(Error::Version));
+        expect!(bytes.next() == b'T' => Err(Error::Version));
+    }
+    #[cfg(feature = "icap")]
+    {
+        expect2!(bytes.next() == b'H'|b'I' => Err(Error::Version));
+        expect2!(bytes.next() == b'T'|b'C' => Err(Error::Version));
+        expect2!(bytes.next() == b'T'|b'A' => Err(Error::Version));
+    }
     expect!(bytes.next() == b'P' => Err(Error::Version));
     expect!(bytes.next() == b'/' => Err(Error::Version));
     expect!(bytes.next() == b'1' => Err(Error::Version));
