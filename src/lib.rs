@@ -892,10 +892,37 @@ fn parse_code(bytes: &mut Bytes<'_>) -> Result<u16> {
 /// ```
 pub fn parse_headers<'b: 'h, 'h>(
     src: &'b [u8],
+    dst: &'h mut [Header<'b>],
+) -> Result<(usize, &'h [Header<'b>])> {
+    parse_headers_with_config(src, dst, &ParserConfig::default())
+}
+
+/// Parse a buffer of bytes as headers with a specified configuration.
+///
+/// The return value, if complete and successful, includes the index of the
+/// buffer that parsing stopped at, and a sliced reference to the parsed
+/// headers. The length of the slice will be equal to the number of properly
+/// parsed headers.
+///
+/// # Example
+///
+/// ```
+/// let buf = b"Host: foo.bar\nAccept: */*\n\nblah blah";
+/// let mut headers = [httparse::EMPTY_HEADER; 4];
+/// assert_eq!(httparse::parse_headers_with_config(buf, &mut headers, &httparse::ParserConfig::default()),
+///            Ok(httparse::Status::Complete((27, &[
+///                httparse::Header { name: "Host", value: b"foo.bar" },
+///                httparse::Header { name: "Accept", value: b"*/*" }
+///            ][..]))));
+/// ```
+#[inline]
+pub fn parse_headers_with_config<'b: 'h, 'h>(
+    src: &'b [u8],
     mut dst: &'h mut [Header<'b>],
+    config: &ParserConfig,
 ) -> Result<(usize, &'h [Header<'b>])> {
     let mut iter = Bytes::new(src);
-    let pos = complete!(parse_headers_iter(&mut dst, &mut iter, &ParserConfig::default()));
+    let pos = complete!(parse_headers_iter(&mut dst, &mut iter, config));
     Ok(Status::Complete((pos, dst)))
 }
 
