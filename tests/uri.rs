@@ -1,6 +1,9 @@
 
 use httparse::{Error, Request, Status, EMPTY_HEADER};
 
+#[cfg(feature="std")]
+use httparse::DynRequest;
+
 const NUM_OF_HEADERS: usize = 4;
 
 macro_rules! req {
@@ -22,9 +25,40 @@ macro_rules! req {
     }
     )
 }
+macro_rules! req_dyn {
+    ($name:ident, $buf:expr, |$arg:ident| $body:expr) => (
+        req_dyn! {$name, $buf, Ok(Status::Complete($buf.len())), |$arg| $body }
+    );
+    ($name:ident, $buf:expr, $len:expr, |$arg:ident| $body:expr) => (
+    #[test]
+    #[cfg(feature = "std")]
+    fn $name() {
+        let mut req = DynRequest::new(None);
+        let status = req.parse($buf.as_ref());
+        assert_eq!(status, $len);
+        closure(req.get_request($buf.as_ref()));
+
+        fn closure($arg: Request) {
+            $body
+        }
+    }
+    )
+}
 
 req! {
     urltest_001,
+    b"GET /bar;par?b HTTP/1.1\r\nHost: foo\r\n\r\n",
+    |req| {
+        assert_eq!(req.method.unwrap(), "GET");
+        assert_eq!(req.path.unwrap(), "/bar;par?b");
+        assert_eq!(req.version.unwrap(), 1);
+        assert_eq!(req.headers.len(), 1);
+        assert_eq!(req.headers[0].name, "Host");
+        assert_eq!(req.headers[0].value, b"foo");
+    }
+}
+req_dyn! {
+    urltest_001_dyn,
     b"GET /bar;par?b HTTP/1.1\r\nHost: foo\r\n\r\n",
     |req| {
         assert_eq!(req.method.unwrap(), "GET");
