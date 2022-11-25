@@ -64,12 +64,18 @@ jobs:
         with:
           command: test
 
+      - name: Test all features
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --all-features
+
       - name: Test all benches
         if: matrix.benches
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --benches
+          args: --benches --all-features
 
   simd:
     name: SIMD ${{ matrix.target_feature }} on ${{ matrix.rust }}
@@ -109,6 +115,15 @@ jobs:
           RUSTFLAGS: -C target_feature=${{ matrix.target_feature }}
           CARGO_CFG_HTTPARSE_DISABLE_SIMD_COMPILETIME: ${{ matrix.disable_compiletime }}
 
+      - name: Test all features
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --all-features
+        env:
+          RUSTFLAGS: -C target_feature=${{ matrix.target_feature }}
+          CARGO_CFG_HTTPARSE_DISABLE_SIMD_COMPILETIME: ${{ matrix.disable_compiletime }}
+
   msrv:
     name: msrv
     runs-on: ubuntu-latest
@@ -129,6 +144,12 @@ jobs:
         with:
           command: build
 
+      - name: Build all features
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --all-features
+
   miri:
     name: Test with Miri
     runs-on: ubuntu-latest
@@ -146,4 +167,4 @@ jobs:
           override: true
 
       - name: Test
-        run: MIRIFLAGS="-Zmiri-tag-raw-pointers -Zmiri-check-number-validity" cargo miri test
+        run: MIRIFLAGS="-Zmiri-tag-raw-pointers -Zmiri-check-number-validity" cargo miri test --all-features
