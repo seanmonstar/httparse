@@ -239,7 +239,7 @@ impl<T> Status<T> {
 }
 
 /// Parser configuration.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct ParserConfig {
     allow_spaces_after_header_name_in_responses: bool,
     allow_obsolete_multiline_headers_in_responses: bool,
@@ -248,12 +248,30 @@ pub struct ParserConfig {
     ignore_invalid_headers_in_responses: bool,
 }
 
+impl Default for ParserConfig {
+    fn default() -> Self {
+        Self::const_default()
+    }
+}
+
 impl ParserConfig {
+    /// Returns default configuration. Same as `Default::default()` but can be used in const
+    /// context.
+    pub const fn const_default() -> Self {
+        Self {
+            allow_spaces_after_header_name_in_responses: false,
+            allow_obsolete_multiline_headers_in_responses: false,
+            allow_multiple_spaces_in_request_line_delimiters: false,
+            allow_multiple_spaces_in_response_status_delimiters: false,
+            ignore_invalid_headers_in_responses: false,
+        }
+    }
+
     /// Sets whether spaces and tabs should be allowed after header names in responses.
-    pub fn allow_spaces_after_header_name_in_responses(
-        &mut self,
+    pub const fn allow_spaces_after_header_name_in_responses(
+        mut self,
         value: bool,
-    ) -> &mut Self {
+    ) -> Self {
         self.allow_spaces_after_header_name_in_responses = value;
         self
     }
@@ -271,13 +289,13 @@ impl ParserConfig {
     /// request line to contain the other mentioned whitespace characters.
     ///
     /// [spec]: https://httpwg.org/http-core/draft-ietf-httpbis-messaging-latest.html#rfc.section.3.p.3
-    pub fn allow_multiple_spaces_in_request_line_delimiters(&mut self, value: bool) -> &mut Self {
+    pub const fn allow_multiple_spaces_in_request_line_delimiters(mut self, value: bool) -> Self {
         self.allow_multiple_spaces_in_request_line_delimiters = value;
         self
     }
 
     /// Whether multiple spaces are allowed as delimiters in request lines.
-    pub fn multiple_spaces_in_request_line_delimiters_are_allowed(&self) -> bool {
+    pub const fn multiple_spaces_in_request_line_delimiters_are_allowed(&self) -> bool {
         self.allow_multiple_spaces_in_request_line_delimiters
     }
 
@@ -295,13 +313,13 @@ impl ParserConfig {
     /// line to contain the other mentioned whitespace characters.
     ///
     /// [spec]: https://httpwg.org/http-core/draft-ietf-httpbis-messaging-latest.html#rfc.section.4.p.3
-    pub fn allow_multiple_spaces_in_response_status_delimiters(&mut self, value: bool) -> &mut Self {
+    pub const fn allow_multiple_spaces_in_response_status_delimiters(mut self, value: bool) -> Self {
         self.allow_multiple_spaces_in_response_status_delimiters = value;
         self
     }
 
     /// Whether multiple spaces are allowed as delimiters in response status lines.
-    pub fn multiple_spaces_in_response_status_delimiters_are_allowed(&self) -> bool {
+    pub const fn multiple_spaces_in_response_status_delimiters_are_allowed(&self) -> bool {
         self.allow_multiple_spaces_in_response_status_delimiters
     }
 
@@ -328,16 +346,16 @@ impl ParserConfig {
     /// assert_eq!(response.headers[0].name, "Folded-Header");
     /// assert_eq!(response.headers[0].value, b"hello\r\n there");
     /// ```
-    pub fn allow_obsolete_multiline_headers_in_responses(
-        &mut self,
+    pub const fn allow_obsolete_multiline_headers_in_responses(
+        mut self,
         value: bool,
-    ) -> &mut Self {
+    ) -> Self {
         self.allow_obsolete_multiline_headers_in_responses = value;
         self
     }
 
     /// Whether obsolete multiline headers should be allowed.
-    pub fn obsolete_multiline_headers_in_responses_are_allowed(&self) -> bool {
+    pub const fn obsolete_multiline_headers_in_responses_are_allowed(&self) -> bool {
         self.allow_obsolete_multiline_headers_in_responses
     }
 
@@ -390,10 +408,10 @@ impl ParserConfig {
     /// with whitespace, those will be ignored too. An error will be emitted
     /// nonetheless if it finds `\0` or a lone `\r` while looking for the
     /// next line.
-    pub fn ignore_invalid_headers_in_responses(
-        &mut self,
+    pub const fn ignore_invalid_headers_in_responses(
+        mut self,
         value: bool,
-    ) -> &mut Self {
+    ) -> Self {
         self.ignore_invalid_headers_in_responses = value;
         self
     }
@@ -508,7 +526,7 @@ impl<'h, 'b> Request<'h, 'b> {
         let headers_len = complete!(parse_headers_iter_uninit(
             &mut headers,
             &mut bytes,
-            &ParserConfig::default(),
+            &ParserConfig::const_default(),
         ));
         /* SAFETY: see `parse_headers_iter_uninit` guarantees */
         self.headers = unsafe { assume_init_slice(headers) };
@@ -626,7 +644,7 @@ impl<'h, 'b> Response<'h, 'b> {
 
     /// Try to parse a buffer of bytes into this `Response`.
     pub fn parse(&mut self, buf: &'b [u8]) -> Result<usize> {
-        self.parse_with_config(buf, &ParserConfig::default())
+        self.parse_with_config(buf, &ParserConfig::const_default())
     }
 
     fn parse_with_config(&mut self, buf: &'b [u8], config: &ParserConfig) -> Result<usize> {
@@ -2232,5 +2250,15 @@ mod tests {
         assert_eq!(response.headers.len(), 1);
         assert_eq!(response.headers[0].name, "Bread");
         assert_eq!(response.headers[0].value, &b"baguette"[..]);
+    }
+
+    #[test]
+    fn test_config_in_const_ctx() {
+        const CONFIG: super::ParserConfig = super::ParserConfig::const_default()
+            .allow_spaces_after_header_name_in_responses(true)
+            .allow_multiple_spaces_in_request_line_delimiters(true);
+
+        assert!(CONFIG.allow_spaces_after_header_name_in_responses);
+        assert!(CONFIG.allow_multiple_spaces_in_request_line_delimiters);
     }
 }
