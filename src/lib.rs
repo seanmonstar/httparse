@@ -239,13 +239,27 @@ impl<T> Status<T> {
 }
 
 /// Parser configuration.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ParserConfig {
     allow_spaces_after_header_name_in_responses: bool,
     allow_obsolete_multiline_headers_in_responses: bool,
     allow_multiple_spaces_in_request_line_delimiters: bool,
     allow_multiple_spaces_in_response_status_delimiters: bool,
     ignore_invalid_headers_in_responses: bool,
+
+    version_parser: fn(&mut Bytes) -> Result<u8>,
+}
+
+impl fmt::Debug for ParserConfig {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("ParserConfig")
+         .field("allow_spaces_after_header_name_in_responses", &self.allow_spaces_after_header_name_in_responses)
+         .field("allow_obsolete_multiline_headers_in_responses", &self.allow_obsolete_multiline_headers_in_responses)
+         .field("allow_multiple_spaces_in_request_line_delimiters", &self.allow_multiple_spaces_in_request_line_delimiters)
+         .field("allow_multiple_spaces_in_response_status_delimiters", &self.ignore_invalid_headers_in_responses)
+         .field("ignore_invalid_headers_in_responses", &self.ignore_invalid_headers_in_responses)
+         .finish()
+    }
 }
 
 impl Default for ParserConfig {
@@ -264,7 +278,20 @@ impl ParserConfig {
             allow_multiple_spaces_in_request_line_delimiters: false,
             allow_multiple_spaces_in_response_status_delimiters: false,
             ignore_invalid_headers_in_responses: false,
+            version_parser: HTTP_VERSION_PARSER,
         }
+    }
+
+    /// Sets first-line parsing to SIP
+    pub const fn set_sip_protocol_parser(mut self) -> Self {
+        self.version_parser = SIP_VERSION_PARSER;
+        self
+    }
+
+    /// Set first-line parsing to HTTP
+    pub const fn set_http_protocol_parser(mut self) -> Self {
+        self.version_parser = HTTP_VERSION_PARSER;
+        self
     }
 
     /// Sets whether spaces and tabs should be allowed after header names in responses.
@@ -519,7 +546,7 @@ impl<'h, 'b> Request<'h, 'b> {
         if config.allow_multiple_spaces_in_request_line_delimiters {
             complete!(skip_spaces(&mut bytes));
         }
-        self.version = Some(complete!(parse_version(&mut bytes)));
+        self.version = Some(complete!((config.version_parser)(&mut bytes)));
         newline!(bytes);
 
         let len = orig_len - bytes.len();
@@ -674,7 +701,7 @@ impl<'h, 'b> Response<'h, 'b> {
         let mut bytes = Bytes::new(buf);
 
         complete!(skip_empty_lines(&mut bytes));
-        self.version = Some(complete!(parse_version(&mut bytes)));
+        self.version = Some(complete!((config.version_parser)(&mut bytes)));
         space!(bytes or Error::Version);
         if config.allow_multiple_spaces_in_response_status_delimiters {
             complete!(skip_spaces(&mut bytes));
@@ -760,8 +787,10 @@ impl<'a> fmt::Debug for Header<'a> {
 /// ```
 pub const EMPTY_HEADER: Header<'static> = Header { name: "", value: b"" };
 
+const HTTP_VERSION_PARSER: fn(&mut Bytes) -> Result<u8> = parse_version_http;
+
 #[inline]
-fn parse_version(bytes: &mut Bytes<'_>) -> Result<u8> {
+fn parse_version_http(bytes: &mut Bytes) -> Result<u8> {
     if let Some(eight) = bytes.peek_n::<[u8; 8]>(8) {
         unsafe { bytes.advance(8); }
         return match &eight {
@@ -781,6 +810,33 @@ fn parse_version(bytes: &mut Bytes<'_>) -> Result<u8> {
     expect!(bytes.next() == b'P' => Err(Error::Version));
     expect!(bytes.next() == b'/' => Err(Error::Version));
     expect!(bytes.next() == b'1' => Err(Error::Version));
+    expect!(bytes.next() == b'.' => Err(Error::Version));
+    Ok(Status::Partial)
+}
+
+const SIP_VERSION_PARSER: fn(&mut Bytes) -> Result<u8> = parse_version_sip;
+
+#[inline]
+fn parse_version_sip(bytes: &mut Bytes) -> Result<u8> {
+    const PEEK_BY: usize = 7;
+
+    if let Some(seven) = bytes.peek_n::<[u8; PEEK_BY]>(PEEK_BY) {
+        unsafe { bytes.advance(PEEK_BY); }
+        return match &seven {
+            b"SIP/2.0" => Ok(Status::Complete(0)),
+            _ => Err(Error::Version),
+        }
+    }
+
+    // else (but not in `else` because of borrow checker)
+
+    // If there aren't at least 8 bytes, we still want to detect early
+    // if this is a valid version or not. If it is, we'll return Partial.
+    expect!(bytes.next() == b'S' => Err(Error::Version));
+    expect!(bytes.next() == b'I' => Err(Error::Version));
+    expect!(bytes.next() == b'P' => Err(Error::Version));
+    expect!(bytes.next() == b'/' => Err(Error::Version));
+    expect!(bytes.next() == b'2' => Err(Error::Version));
     expect!(bytes.next() == b'.' => Err(Error::Version));
     Ok(Status::Partial)
 }
@@ -2260,5 +2316,26 @@ mod tests {
 
         assert!(CONFIG.allow_spaces_after_header_name_in_responses);
         assert!(CONFIG.allow_multiple_spaces_in_request_line_delimiters);
+    }
+
+    #[test]
+    fn test_sip_resp() {
+        const RESPONSE: &[u8] =
+            b"SIP/2.0 200 OK\r\nVia: SIP/2.0/UDP example.com;branch=FFFFFFFFFFFFFF;received=10.10.10.10\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut response = Response::new(&mut headers[..]);
+
+        let result = crate::ParserConfig::const_default()
+            .set_sip_protocol_parser()
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Ok(Status::Complete(91)));
+
+        assert_eq!(response.version.unwrap(), 0);
+        assert_eq!(response.code.unwrap(), 200);
+        assert_eq!(response.reason.unwrap(), "OK");
+        assert_eq!(response.headers.len(), 1);
+        assert_eq!(response.headers[0].name, "Via");
+        assert_eq!(response.headers[0].value, b"SIP/2.0/UDP example.com;branch=FFFFFFFFFFFFFF;received=10.10.10.10");
     }
 }
