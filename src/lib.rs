@@ -1319,6 +1319,18 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "icap")]
+    req! {
+        test_request_icap_simple,
+        b"OPTIONS icap://sample-service ICAP/1.0\r\n\r\n",
+        |req| {
+            assert_eq!(req.method.unwrap(), "OPTIONS");
+            assert_eq!(req.path.unwrap(), "icap://sample-service");
+            assert_eq!(req.version.unwrap(), 100);
+            assert_eq!(req.headers.len(), 0);
+        }
+    }
+
     req! {
         test_request_simple_with_query_params,
         b"GET /thing?data=a HTTP/1.1\r\n\r\n",
@@ -1353,6 +1365,22 @@ mod tests {
             assert_eq!(req.headers[0].value, b"foo.com");
             assert_eq!(req.headers[1].name, "Cookie");
             assert_eq!(req.headers[1].value, b"");
+        }
+    }
+
+    #[cfg(feature = "icap")]
+    req! {
+        test_icap_request_headers,
+        b"REQMOD icap://sample-service ICAP/1.0\r\nHost: foo.com\r\nAllow: 204, 206\r\n\r\n",
+        |req| {
+            assert_eq!(req.method.unwrap(), "REQMOD");
+            assert_eq!(req.path.unwrap(), "icap://sample-service");
+            assert_eq!(req.version.unwrap(), 100);
+            assert_eq!(req.headers.len(), 2);
+            assert_eq!(req.headers[0].name, "Host");
+            assert_eq!(req.headers[0].value, b"foo.com");
+            assert_eq!(req.headers[1].name, "Allow");
+            assert_eq!(req.headers[1].value, b"204, 206");
         }
     }
 
@@ -1443,9 +1471,29 @@ mod tests {
         |_req| {}
     }
 
+    #[cfg(feature = "icap")]
+    req! {
+        test_icap_request_partial,
+        b"REQMOD icap://service ICAP/1.0\r\n\r", Ok(Status::Partial),
+        |_req| {}
+    }
+
     req! {
         test_request_partial_version,
         b"GET / HTTP/1.", Ok(Status::Partial),
+        |_req| {}
+    }
+
+    req! {
+        test_request_partial_version2,
+        b"GET / HT", Ok(Status::Partial),
+        |_req| {}
+    }
+
+    #[cfg(feature = "icap")]
+    req! {
+        test_icap_request_partial_version,
+        b"OPTIONS icap://service ICA", Ok(Status::Partial),
         |_req| {}
     }
 
@@ -1517,6 +1565,14 @@ mod tests {
         |_r| {}
     }
 
+    #[cfg(feature = "icap")]
+    req! {
+        test_icap_request_with_invalid_but_short_version,
+        b"OPTIONS icap://service ICAP/1!",
+        Err(crate::Error::Version),
+        |_r| {}
+    }
+
     req! {
         test_request_with_empty_method,
         b" / HTTP/1.1\r\n\r\n",
@@ -1527,6 +1583,14 @@ mod tests {
     req! {
         test_request_with_empty_path,
         b"GET  HTTP/1.1\r\n\r\n",
+        Err(crate::Error::Token),
+        |_r| {}
+    }
+
+    #[cfg(feature = "icap")]
+    req! {
+        test_icap_request_with_empty_path,
+        b"OPTIONS  ICAP/1.0\r\n\r\n",
         Err(crate::Error::Token),
         |_r| {}
     }
@@ -1568,6 +1632,17 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "icap")]
+    res! {
+        test_icap_response_simple,
+        b"ICAP/1.0 200 OK\r\n\r\n",
+        |res| {
+            assert_eq!(res.version.unwrap(), 100);
+            assert_eq!(res.code.unwrap(), 200);
+            assert_eq!(res.reason.unwrap(), "OK");
+        }
+    }
+
     res! {
         test_response_newlines,
         b"HTTP/1.0 403 Forbidden\nServer: foo.bar\n\n",
@@ -1579,6 +1654,17 @@ mod tests {
         b"HTTP/1.1 200 \r\n\r\n",
         |res| {
             assert_eq!(res.version.unwrap(), 1);
+            assert_eq!(res.code.unwrap(), 200);
+            assert_eq!(res.reason.unwrap(), "");
+        }
+    }
+
+    #[cfg(feature = "icap")]
+    res! {
+        test_icap_response_reason_missing,
+        b"ICAP/1.0 200 \r\n\r\n",
+        |res| {
+            assert_eq!(res.version.unwrap(), 100);
             assert_eq!(res.code.unwrap(), 200);
             assert_eq!(res.reason.unwrap(), "");
         }
@@ -1604,6 +1690,20 @@ mod tests {
             assert_eq!(res.headers.len(), 1);
             assert_eq!(res.headers[0].name, "Foo");
             assert_eq!(res.headers[0].value, b"bar");
+        }
+    }
+
+    #[cfg(feature = "icap")]
+    res! {
+        test_icap_response_reason_missing_no_space_with_headers,
+        b"ICAP/1.0 200\r\nAllow: 204, 206\r\n\r\n",
+        |res| {
+            assert_eq!(res.version.unwrap(), 100);
+            assert_eq!(res.code.unwrap(), 200);
+            assert_eq!(res.reason.unwrap(), "");
+            assert_eq!(res.headers.len(), 1);
+            assert_eq!(res.headers[0].name, "Allow");
+            assert_eq!(res.headers[0].value, b"204, 206");
         }
     }
 
@@ -1639,6 +1739,14 @@ mod tests {
     res! {
         test_response_version_missing_space,
         b"HTTP/1.1",
+        Ok(Status::Partial),
+        |_res| {}
+    }
+
+    #[cfg(feature = "icap")]
+    res! {
+        test_icap_response_version_missing_space,
+        b"ICAP/1.0",
         Ok(Status::Partial),
         |_res| {}
     }
