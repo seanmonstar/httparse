@@ -102,7 +102,7 @@ const fn uniform_block(b: u8) -> u64 {
 // `33 <= x <= 126 && x != '>' && x != '<'`
 // it false negatives if the block contains '?'
 #[inline]
-fn is_uri_block(block: [u8; 8]) -> bool {
+fn validate_uri_block(block: [u8; 8]) -> usize {
     // 33 <= x <= 126
     const M: u8 = 0x21;
     const N: u8 = 0x7E;
@@ -144,7 +144,7 @@ fn is_uri_block(block: [u8; 8]) -> bool {
     let xgt = x ^ BGT;
     let ltgtq = xgt.wrapping_sub(B3) & !xgt;
     
-    ((ltgtq | lt | gt) & M128) == 0
+    offsetnz((ltgtq | lt | gt) & M128)
 }
 
 static HEADER_NAME_MAP: [bool; 256] = byte_map![
@@ -199,7 +199,7 @@ fn is_header_value_token(b: u8) -> bool {
 // A byte-wise range-check on an entire word/block,
 // ensuring all bytes in the word satisfy `32 <= x <= 126`
 #[inline]
-fn is_header_value_block(block: [u8; 8]) -> bool {
+fn validate_header_value_block(block: [u8; 8]) -> usize {
     // 32 <= x <= 126
     const M: u8 = 0x20;
     const N: u8 = 0x7E;
@@ -210,8 +210,36 @@ fn is_header_value_block(block: [u8; 8]) -> bool {
     let x = u64::from_ne_bytes(block); // Really just a transmute
     let lt = x.wrapping_sub(BM) & !x; // <= m
     let gt = x.wrapping_add(BN) | x; // >= n
-    ((lt | gt) & M128) == 0
+    offsetnz((lt | gt) & M128)
 }
+
+#[inline]
+/// Check block to find offset of first non-zero byte
+fn offsetnz(block: u64) -> usize {
+    // fast path optimistic case (common for long valid sequences)
+    if block == 0 {
+        return 8;
+    }
+
+    // perf: rust will unroll this loop
+    for (i, b) in block.to_ne_bytes().iter().copied().enumerate() {
+        if b != 0 {
+            return i;
+        }
+    }
+    unreachable!()
+}
+
+// NOTE: This is a bit slower than the above, despite fewer instructions
+// #[inline] // Esentially an unlikely hint
+// fn offsetnz(block: u64) -> usize {
+//     if block == 0 {
+//         return 8;
+//     }
+//     // TODO: endianess
+//     // (unsafe { std::intrinsics::cttz_nonzero(block) } >> 3) as usize
+//     (block.trailing_zeros() >> 3) as usize
+// }
 
 /// An error in parsing.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -954,10 +982,9 @@ pub fn parse_uri<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
     let mut b;
     loop {
         if let Some(bytes8) = bytes.peek_n::<[u8; 8]>(8) {
-            if is_uri_block(bytes8) {
-                unsafe { bytes.advance(8); }
-                continue;
-            }
+            let n = validate_uri_block(bytes8);
+            unsafe { bytes.advance(n); }
+            if n == 8 { continue; }
         }
         b = next!(bytes);
         if !is_uri_token(b) {
@@ -1249,10 +1276,9 @@ fn parse_headers_iter_uninit<'a, 'b>(
 
                 'value_line: loop {
                     if let Some(bytes8) = bytes.peek_n::<[u8; 8]>(8) {
-                        if is_header_value_block(bytes8) {
-                            unsafe { bytes.advance(8); }
-                            continue 'value_line;
-                        }
+                        let n = validate_header_value_block(bytes8);
+                        unsafe { bytes.advance(n); }
+                        if n == 8 { continue 'value_line; }
                     }
                     b = next!(bytes);
                     if !is_header_value_token(b) {
@@ -1388,7 +1414,7 @@ pub fn parse_chunk_size(buf: &[u8])
 #[cfg(test)]
 mod tests {
     use super::{Request, Response, Status, EMPTY_HEADER, parse_chunk_size};
-    use super::{is_header_value_block, is_uri_block};
+    use super::{offsetnz, validate_header_value_block, validate_uri_block};
     // use super::{is_header_value_token, is_uri_token};
 
     const NUM_OF_HEADERS: usize = 4;
@@ -2362,6 +2388,7 @@ mod tests {
         // for b in 0..=255_u8 {
         //     println!("{} => {} [{}]", b, is_header_value_block([b; 8]), is_header_value_token(b))
         // }
+        let is_header_value_block = |b| validate_header_value_block(b) == 8;
 
         // 0..32 => false
         for b in 0..32_u8 {
@@ -2375,7 +2402,7 @@ mod tests {
         for b in 127..=255_u8 {
             assert_eq!(is_header_value_block([b; 8]), false, "b={}", b);
         }
-        
+
         // A few sanity checks on non-uniform bytes for safe-measure
         assert!(!is_header_value_block(*b"foo.com\n"));
         assert!(!is_header_value_block(*b"o.com\r\nU"));
@@ -2387,6 +2414,7 @@ mod tests {
         // for b in 0..=255_u8 {
         //     println!("{} => {} [{}]", b, is_uri_block([b; 8]), is_uri_token(b))
         // }
+        let is_uri_block = |b| validate_uri_block(b) == 8;
 
         // 0..33 => false
         for b in 0..33_u8 {
@@ -2400,6 +2428,17 @@ mod tests {
         // 127..=255 => false
         for b in 127..=255_u8 {
             assert_eq!(is_uri_block([b; 8]), false, "b={}", b);
+        }
+    }
+
+    #[test]
+    fn test_offsetnz() {
+        let seq = [0_u8; 8];
+        for i in 0..8 {
+            let mut seq = seq.clone();
+            seq[i] = 1;
+            let x = u64::from_ne_bytes(seq);
+            assert_eq!(offsetnz(x), i);
         }
     }
 }
