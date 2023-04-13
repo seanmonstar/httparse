@@ -27,11 +27,6 @@ bench = false
 name = "parse"
 harness = false
 
-[profile.release]
-lto = true
-codegen-units = 1
-opt-level = 3
-
 [profile.bench]
 lto = true
 codegen-units = 1
