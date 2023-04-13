@@ -30,8 +30,9 @@ mod iter;
 #[macro_use] mod macros;
 mod simd;
 
-// Expose some internal functions so we can bench them individually
 #[doc(hidden)]
+// Expose some internal functions so we can bench them individually
+// WARNING: Exported for internal benchmarks, not fit for public consumption
 pub mod _benchable {
     pub use super::parse_uri;
     pub use super::parse_version;
@@ -738,6 +739,7 @@ pub const EMPTY_HEADER: Header<'static> = Header { name: "", value: b"" };
 #[inline]
 #[doc(hidden)]
 #[allow(missing_docs)]
+// WARNING: Exported for internal benchmarks, not fit for public consumption
 pub fn parse_version(bytes: &mut Bytes) -> Result<u8> {
     if let Some(eight) = bytes.peek_n::<[u8; 8]>(8) {
         unsafe { bytes.advance(8); }
@@ -765,6 +767,7 @@ pub fn parse_version(bytes: &mut Bytes) -> Result<u8> {
 #[inline]
 #[doc(hidden)]
 #[allow(missing_docs)]
+// WARNING: Exported for internal benchmarks, not fit for public consumption
 pub fn parse_method<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
     const GET: [u8; 4] = *b"GET ";
     const POST: [u8; 4] = *b"POST";
@@ -858,6 +861,7 @@ fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
 #[inline]
 #[doc(hidden)]
 #[allow(missing_docs)]
+// WARNING: Exported for internal benchmarks, not fit for public consumption
 pub fn parse_uri<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
     let b = next!(bytes);
     if !is_uri_token(b) {
