@@ -113,7 +113,6 @@ fn validate_uri_block(block: [u8; 8]) -> usize {
     let x = u64::from_ne_bytes(block); // Really just a transmute
     let lt = x.wrapping_sub(BM) & !x; // <= m
     let gt = x.wrapping_add(BN) | x; // >= n
-    // ((lt | gt) & M128) == 0
     
     // XOR checks to catch '<' & '>' for correctness
     // 
@@ -215,6 +214,7 @@ fn validate_header_value_block(block: [u8; 8]) -> usize {
 
 #[inline]
 /// Check block to find offset of first non-zero byte
+// NOTE: Curiously `block.trailing_zeros() >> 3` appears to be slower, maybe revisit
 fn offsetnz(block: u64) -> usize {
     // fast path optimistic case (common for long valid sequences)
     if block == 0 {
@@ -229,17 +229,6 @@ fn offsetnz(block: u64) -> usize {
     }
     unreachable!()
 }
-
-// NOTE: This is a bit slower than the above, despite fewer instructions
-// #[inline] // Esentially an unlikely hint
-// fn offsetnz(block: u64) -> usize {
-//     if block == 0 {
-//         return 8;
-//     }
-//     // TODO: endianess
-//     // (unsafe { std::intrinsics::cttz_nonzero(block) } >> 3) as usize
-//     (block.trailing_zeros() >> 3) as usize
-// }
 
 /// An error in parsing.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -1415,7 +1404,6 @@ pub fn parse_chunk_size(buf: &[u8])
 mod tests {
     use super::{Request, Response, Status, EMPTY_HEADER, parse_chunk_size};
     use super::{offsetnz, validate_header_value_block, validate_uri_block};
-    // use super::{is_header_value_token, is_uri_token};
 
     const NUM_OF_HEADERS: usize = 4;
 
@@ -2384,10 +2372,6 @@ mod tests {
 
     #[test]
     fn test_is_header_value_block() {
-        // Print out truth table for uniform blocks
-        // for b in 0..=255_u8 {
-        //     println!("{} => {} [{}]", b, is_header_value_block([b; 8]), is_header_value_token(b))
-        // }
         let is_header_value_block = |b| validate_header_value_block(b) == 8;
 
         // 0..32 => false
@@ -2410,10 +2394,6 @@ mod tests {
 
     #[test]
     fn test_is_uri_block() {
-        // Print out truth table for uniform blocks
-        // for b in 0..=255_u8 {
-        //     println!("{} => {} [{}]", b, is_uri_block([b; 8]), is_uri_token(b))
-        // }
         let is_uri_block = |b| validate_uri_block(b) == 8;
 
         // 0..33 => false
