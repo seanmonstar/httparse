@@ -7,7 +7,13 @@ pub enum Scan {
     TooShort,
 }
 
+#[cfg(target_arch = "x86")]
+unsafe fn parse_uri_batch_32(_: &[u8]) -> usize {
+    unreachable!("AVX2 detection should be disabled for x86");
+}
 
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
 pub unsafe fn parse_uri_batch_32(bytes: &mut Bytes) -> Scan {
     while bytes.as_ref().len() >= 32 {
         let advance = match_url_char_32_avx(bytes.as_ref());
@@ -20,9 +26,7 @@ pub unsafe fn parse_uri_batch_32(bytes: &mut Bytes) -> Scan {
     Scan::TooShort
 }
 
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-#[inline]
+#[inline(always)]
 #[allow(non_snake_case, overflowing_literals)]
 unsafe fn match_url_char_32_avx(buf: &[u8]) -> usize {
     debug_assert!(buf.len() >= 32);
@@ -59,16 +63,18 @@ unsafe fn match_url_char_32_avx(buf: &[u8]) -> usize {
     let bits = _mm256_and_si256(_mm256_shuffle_epi8(ARF, cols), rbms);
 
     let v = _mm256_cmpeq_epi8(bits, _mm256_setzero_si256());
-    let r = 0xffff_ffff_0000_0000 | _mm256_movemask_epi8(v) as u64;
+    let r = _mm256_movemask_epi8(v) as u32;
 
-    _tzcnt_u64(r) as usize
+    r.trailing_zeros() as usize
 }
 
 #[cfg(target_arch = "x86")]
-unsafe fn match_url_char_32_avx(_: &[u8]) -> usize {
+unsafe fn match_header_value_batch_32(_: &[u8]) -> usize {
     unreachable!("AVX2 detection should be disabled for x86");
 }
 
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
 pub unsafe fn match_header_value_batch_32(bytes: &mut Bytes) -> Scan {
     while bytes.as_ref().len() >= 32 {
         let advance = match_header_value_char_32_avx(bytes.as_ref());
@@ -81,9 +87,7 @@ pub unsafe fn match_header_value_batch_32(bytes: &mut Bytes) -> Scan {
     Scan::TooShort
 }
 
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-#[inline]
+#[inline(always)]
 #[allow(non_snake_case)]
 unsafe fn match_header_value_char_32_avx(buf: &[u8]) -> usize {
     debug_assert!(buf.len() >= 32);
@@ -109,14 +113,9 @@ unsafe fn match_header_value_char_32_avx(buf: &[u8]) -> usize {
     let del = _mm256_cmpeq_epi8(dat, DEL);
     let bit = _mm256_andnot_si256(del, _mm256_or_si256(low, tab));
     let rev = _mm256_cmpeq_epi8(bit, _mm256_setzero_si256());
-    let res = 0xffff_ffff_0000_0000 | _mm256_movemask_epi8(rev) as u64;
+    let res = _mm256_movemask_epi8(rev) as u32;
 
-    _tzcnt_u64(res) as usize
-}
-
-#[cfg(target_arch = "x86")]
-unsafe fn match_header_value_char_32_avx(_: &[u8]) -> usize {
-    unreachable!("AVX2 detection should be disabled for x86");
+    res.trailing_zeros() as usize
 }
 
 #[test]
