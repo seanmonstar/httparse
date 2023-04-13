@@ -2,11 +2,13 @@ use core::slice;
 use core::convert::TryInto;
 use core::convert::TryFrom;
 
+#[allow(missing_docs)]
 pub struct Bytes<'a> {
     slice: &'a [u8],
     pos: usize
 }
 
+#[allow(missing_docs)]
 impl<'a> Bytes<'a> {
     #[inline]
     pub fn new(slice: &'a [u8]) -> Bytes<'a> {

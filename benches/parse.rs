@@ -83,9 +83,112 @@ fn resp_short(c: &mut Criterion) {
         }));
 }
 
+fn uri(c: &mut Criterion) {
+    fn _uri(c: &mut Criterion, name: &str, input: &'static [u8]) {
+        c.benchmark_group("uri")
+        .throughput(Throughput::Bytes(input.len() as u64))
+        .bench_function(name, |b| b.iter(|| {
+            black_box({
+                let mut b = httparse::_benchable::Bytes::new(input);
+                httparse::_benchable::parse_uri(&mut b).unwrap()
+            });
+        }));
+    }
+
+    const S: &[u8] = b" ";
+    const CHUNK64: &[u8] = b"/wp-content/uploads/2022/08/31/hello-kitty-darth-vader-pink.webp";
+    let chunk_4k = CHUNK64.repeat(64);
+    
+    // 1b to 4096b
+    for p in 0..=12 {
+        let n = 1 << p;
+        _uri(c, &format!("uri_{}b", n), [chunk_4k[..n].to_vec(), S.into()].concat().leak());
+    }
+}
+
+fn header(c: &mut Criterion) {
+    fn _header(c: &mut Criterion, name: &str, input: &'static [u8]) {
+        let mut headers = [httparse::EMPTY_HEADER; 128];
+        c.benchmark_group("header")
+        .throughput(Throughput::Bytes(input.len() as u64))
+        .bench_function(name, |b| b.iter(|| {
+            black_box({
+                let _ = httparse::parse_headers(input, &mut headers).unwrap();
+            });
+        }));
+    }
+        
+    const RN: &[u8] = b"\r\n";
+    const RNRN: &[u8] = b"\r\n\r\n";
+    const TINY_RN: &[u8] = b"a: b\r\n"; // minimal header line
+    const XFOOBAR: &[u8] = b"X-Foobar";
+    let xfoobar_4k = XFOOBAR.repeat(4096/XFOOBAR.len());
+    
+    // header names 1b to 4096b
+    for p in 0..=12 {
+        let n = 1 << p;
+        let payload = [&xfoobar_4k[..n], b": b", RNRN].concat().leak();
+        _header(c, &format!("name_{}b", n), payload);
+    }
+    
+    // header values 1b to 4096b
+    for p in 0..=12 {
+        let n = 1 << p;
+        let payload = [b"a: ", &xfoobar_4k[..n], RNRN].concat().leak();
+        _header(c, &format!("value_{}b", n), payload);
+    }
+    
+    // 1 to 128
+    for p in 0..=7 {
+        let n = 1 << p;
+        _header(c, &format!("count_{}", n), [TINY_RN.repeat(n), RN.into()].concat().leak());
+    }
+}
+
+fn version(c: &mut Criterion) {
+    fn _version(c: &mut Criterion, name: &str, input: &'static [u8]) {
+        c.benchmark_group("version")
+        .throughput(Throughput::Bytes(input.len() as u64))
+        .bench_function(name, |b| b.iter(|| {
+            black_box({
+                let mut b = httparse::_benchable::Bytes::new(input);
+                httparse::_benchable::parse_version(&mut b).unwrap()
+            });
+        }));
+    }
+    
+    _version(c, "http10", b"HTTP/1.0\r\n");
+    _version(c, "http11", b"HTTP/1.1\r\n");
+    _version(c, "partial", b"HTTP/1.");
+}
+
+fn method(c: &mut Criterion) {
+    fn _method(c: &mut Criterion, name: &str, input: &'static [u8]) {
+        c.benchmark_group("method")
+        .throughput(Throughput::Bytes(input.len() as u64))
+        .bench_function(name, |b| b.iter(|| {
+            black_box({
+                let mut b = httparse::_benchable::Bytes::new(input);
+                httparse::_benchable::parse_method(&mut b).unwrap()
+            });
+        }));
+    }
+    
+    // Common methods should be fast-pathed
+    const COMMON_METHODS: &[&str] = &["GET", "HEAD", "POST", "PUT", "DELETE", "CONNECT", "OPTIONS", "TRACE", "PATCH"];
+    for method in COMMON_METHODS {
+        _method(c, &method.to_lowercase(), format!("{} / HTTP/1.1\r\n", method).into_bytes().leak());
+    }
+    // Custom methods should be infrequent and thus not worth optimizing
+    _method(c, "custom", b"CUSTOM / HTTP/1.1\r\n");
+}
+
+const WARMUP: Duration = Duration::from_millis(100);
+const MTIME: Duration = Duration::from_millis(100);
+const SAMPLES: usize = 200;
 criterion_group!{
     name = benches;
-    config = Criterion::default().sample_size(100).measurement_time(Duration::from_secs(10));
-    targets = req, req_short, resp, resp_short
+    config = Criterion::default().sample_size(SAMPLES).warm_up_time(WARMUP).measurement_time(MTIME);
+    targets = req, req_short, resp, resp_short, uri, header, version, method
 }
 criterion_main!(benches);
