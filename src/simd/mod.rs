@@ -5,6 +5,7 @@ mod swar;
     any(
         target_arch = "x86",
         target_arch = "x86_64",
+        target_arch = "aarch64",
     ),
 )))]
 pub use self::swar::*;
@@ -132,3 +133,15 @@ mod avx2_compile_time {
     ),
 ))]
 pub use self::avx2_compile_time::*;
+
+#[cfg(all(
+    httparse_simd,
+    target_arch = "aarch64",
+))]
+mod neon;
+
+#[cfg(all(
+    httparse_simd,
+    target_arch = "aarch64",
+))]
+pub use self::neon::*;
