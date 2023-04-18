@@ -1,5 +1,6 @@
 use crate::iter::Bytes;
 
+#[target_feature(enable = "sse4.2")]
 pub unsafe fn parse_uri_batch_16(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 16 {
         let advance = match_url_char_16_sse(bytes.as_ref());
@@ -11,7 +12,7 @@ pub unsafe fn parse_uri_batch_16(bytes: &mut Bytes) {
     }
 }
 
-#[target_feature(enable = "sse4.2")]
+#[inline(always)]
 #[allow(non_snake_case, overflowing_literals)]
 unsafe fn match_url_char_16_sse(buf: &[u8]) -> usize {
     debug_assert!(buf.len() >= 16);
@@ -54,11 +55,12 @@ unsafe fn match_url_char_16_sse(buf: &[u8]) -> usize {
     let bits = _mm_and_si128(_mm_shuffle_epi8(ARF, cols), rbms);
 
     let v = _mm_cmpeq_epi8(bits, _mm_setzero_si128());
-    let r = 0xffff_0000 | _mm_movemask_epi8(v) as u32;
+    let r = _mm_movemask_epi8(v) as u16;
 
-    _tzcnt_u32(r) as usize
+    r.trailing_zeros() as usize
 }
 
+#[target_feature(enable = "sse4.2")]
 pub unsafe fn match_header_value_batch_16(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 16 {
         let advance = match_header_value_char_16_sse(bytes.as_ref());
@@ -70,7 +72,7 @@ pub unsafe fn match_header_value_batch_16(bytes: &mut Bytes) {
     }
 }
 
-#[target_feature(enable = "sse4.2")]
+#[inline(always)]
 #[allow(non_snake_case)]
 unsafe fn match_header_value_char_16_sse(buf: &[u8]) -> usize {
     debug_assert!(buf.len() >= 16);
@@ -94,9 +96,9 @@ unsafe fn match_header_value_char_16_sse(buf: &[u8]) -> usize {
     let del = _mm_cmpeq_epi8(dat, DEL);
     let bit = _mm_andnot_si128(del, _mm_or_si128(low, tab));
     let rev = _mm_cmpeq_epi8(bit, _mm_setzero_si128());
-    let res = 0xffff_0000 | _mm_movemask_epi8(rev) as u32;
+    let res = _mm_movemask_epi8(rev) as u16;
 
-    _tzcnt_u32(res) as usize
+    res.trailing_zeros() as usize
 }
 
 #[test]
