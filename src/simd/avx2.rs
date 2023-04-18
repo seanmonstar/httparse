@@ -1,29 +1,24 @@
 use crate::iter::Bytes;
 
-pub enum Scan {
-    /// Returned when an implementation finds a noteworthy token.
-    Found,
-    /// Returned when an implementation couldn't keep running because the input was too short.
-    TooShort,
-}
-
 #[cfg(target_arch = "x86")]
-unsafe fn parse_uri_batch_32(_: &[u8]) -> usize {
+pub unsafe fn match_uri_vectored(_: &mut Bytes) {
     unreachable!("AVX2 detection should be disabled for x86");
 }
 
+#[inline]
 #[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-pub unsafe fn parse_uri_batch_32(bytes: &mut Bytes) -> Scan {
+#[target_feature(enable = "avx2", enable = "sse4.2")]
+pub unsafe fn match_uri_vectored(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 32 {
         let advance = match_url_char_32_avx(bytes.as_ref());
         bytes.advance(advance);
 
         if advance != 32 {
-            return Scan::Found;
+            return;
         }
     }
-    Scan::TooShort
+    // do both, since avx2 only works when bytes.len() >= 32
+    super::sse42::match_uri_vectored(bytes)
 }
 
 #[inline(always)]
@@ -69,22 +64,23 @@ unsafe fn match_url_char_32_avx(buf: &[u8]) -> usize {
 }
 
 #[cfg(target_arch = "x86")]
-unsafe fn match_header_value_batch_32(_: &[u8]) -> usize {
+pub unsafe fn match_header_value_vectored(_: &mut Bytes) {
     unreachable!("AVX2 detection should be disabled for x86");
 }
 
 #[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-pub unsafe fn match_header_value_batch_32(bytes: &mut Bytes) -> Scan {
+#[target_feature(enable = "avx2", enable = "sse4.2")]
+pub unsafe fn match_header_value_vectored(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 32 {
         let advance = match_header_value_char_32_avx(bytes.as_ref());
         bytes.advance(advance);
 
         if advance != 32 {
-            return Scan::Found;
+            return;
         }
     }
-    Scan::TooShort
+    // do both, since avx2 only works when bytes.len() >= 32
+    super::sse42::match_header_value_vectored(bytes)
 }
 
 #[inline(always)]
@@ -120,17 +116,16 @@ unsafe fn match_header_value_char_32_avx(buf: &[u8]) -> usize {
 
 #[test]
 fn avx2_code_matches_uri_chars_table() {
-    match super::detect() {
-        super::AVX_2 | super::AVX_2_AND_SSE_42 => {},
-        _ => return,
+    if !is_x86_feature_detected!("avx2") {
+        return;
     }
 
     unsafe {
-        assert!(byte_is_allowed(b'_', parse_uri_batch_32));
+        assert!(byte_is_allowed(b'_', match_uri_vectored));
 
         for (b, allowed) in crate::URI_MAP.iter().cloned().enumerate() {
             assert_eq!(
-                byte_is_allowed(b as u8, parse_uri_batch_32), allowed,
+                byte_is_allowed(b as u8, match_uri_vectored), allowed,
                 "byte_is_allowed({:?}) should be {:?}", b, allowed,
             );
         }
@@ -139,17 +134,16 @@ fn avx2_code_matches_uri_chars_table() {
 
 #[test]
 fn avx2_code_matches_header_value_chars_table() {
-    match super::detect() {
-        super::AVX_2 | super::AVX_2_AND_SSE_42 => {},
-        _ => return,
+    if !is_x86_feature_detected!("avx2") {
+        return;
     }
 
     unsafe {
-        assert!(byte_is_allowed(b'_', match_header_value_batch_32));
+        assert!(byte_is_allowed(b'_', match_header_value_vectored));
 
         for (b, allowed) in crate::HEADER_VALUE_MAP.iter().cloned().enumerate() {
             assert_eq!(
-                byte_is_allowed(b as u8, match_header_value_batch_32), allowed,
+                byte_is_allowed(b as u8, match_header_value_vectored), allowed,
                 "byte_is_allowed({:?}) should be {:?}", b, allowed,
             );
         }
@@ -157,7 +151,7 @@ fn avx2_code_matches_header_value_chars_table() {
 }
 
 #[cfg(test)]
-unsafe fn byte_is_allowed(byte: u8, f: unsafe fn(bytes: &mut Bytes<'_>) -> Scan) -> bool {
+unsafe fn byte_is_allowed(byte: u8, f: unsafe fn(bytes: &mut Bytes<'_>)) -> bool {
     let slice = [
         b'_', b'_', b'_', b'_',
         b'_', b'_', b'_', b'_',
