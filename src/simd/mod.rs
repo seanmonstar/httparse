@@ -1,11 +1,4 @@
-#[cfg(not(all(
-    httparse_simd,
-    any(
-        target_arch = "x86",
-        target_arch = "x86_64",
-    ),
-)))]
-mod fallback;
+mod swar;
 
 #[cfg(not(all(
     httparse_simd,
@@ -14,7 +7,7 @@ mod fallback;
         target_arch = "x86_64",
     ),
 )))]
-pub use self::fallback::*;
+pub use self::swar::*;
 
 #[cfg(all(
     httparse_simd,
@@ -75,6 +68,11 @@ pub use self::runtime::*;
 ))]
 mod sse42_compile_time {
     #[inline(always)]
+    pub fn match_header_name_vectored(b: &mut crate::iter::Bytes<'_>) {
+        super::swar::match_header_name_vectored(b);
+    }
+
+    #[inline(always)]
     pub fn match_uri_vectored(b: &mut crate::iter::Bytes<'_>) {
         // SAFETY: calls are guarded by a compile time feature check
         unsafe { crate::simd::sse42::match_uri_vectored(b) }
@@ -107,6 +105,11 @@ pub use self::sse42_compile_time::*;
     ),
 ))]
 mod avx2_compile_time {
+    #[inline(always)]
+    pub fn match_header_name_vectored(b: &mut crate::iter::Bytes<'_>) {
+        super::swar::match_header_name_vectored(b);
+    }
+
     #[inline(always)]
     pub fn match_uri_vectored(b: &mut crate::iter::Bytes<'_>) {
         // SAFETY: calls are guarded by a compile time feature check
