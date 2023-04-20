@@ -1,7 +1,7 @@
 use crate::iter::Bytes;
 
 #[target_feature(enable = "sse4.2")]
-pub unsafe fn parse_uri_batch_16(bytes: &mut Bytes) {
+pub unsafe fn match_uri_vectored(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 16 {
         let advance = match_url_char_16_sse(bytes.as_ref());
         bytes.advance(advance);
@@ -61,7 +61,7 @@ unsafe fn match_url_char_16_sse(buf: &[u8]) -> usize {
 }
 
 #[target_feature(enable = "sse4.2")]
-pub unsafe fn match_header_value_batch_16(bytes: &mut Bytes) {
+pub unsafe fn match_header_value_vectored(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 16 {
         let advance = match_header_value_char_16_sse(bytes.as_ref());
         bytes.advance(advance);
@@ -103,17 +103,16 @@ unsafe fn match_header_value_char_16_sse(buf: &[u8]) -> usize {
 
 #[test]
 fn sse_code_matches_uri_chars_table() {
-    match super::detect() {
-        super::SSE_42 | super::AVX_2_AND_SSE_42 => {},
-        _ => return,
+    if is_x86_feature_detected!("sse4.2") {
+        return;
     }
 
     unsafe {
-        assert!(byte_is_allowed(b'_', parse_uri_batch_16));
+        assert!(byte_is_allowed(b'_', match_uri_vectored));
 
         for (b, allowed) in crate::URI_MAP.iter().cloned().enumerate() {
             assert_eq!(
-                byte_is_allowed(b as u8, parse_uri_batch_16), allowed,
+                byte_is_allowed(b as u8, match_uri_vectored), allowed,
                 "byte_is_allowed({:?}) should be {:?}", b, allowed,
             );
         }
@@ -122,17 +121,16 @@ fn sse_code_matches_uri_chars_table() {
 
 #[test]
 fn sse_code_matches_header_value_chars_table() {
-    match super::detect() {
-        super::SSE_42 | super::AVX_2_AND_SSE_42 => {},
-        _ => return,
+    if is_x86_feature_detected!("sse4.2") {
+        return;
     }
 
     unsafe {
-        assert!(byte_is_allowed(b'_', match_header_value_batch_16));
+        assert!(byte_is_allowed(b'_', match_header_value_vectored));
 
         for (b, allowed) in crate::HEADER_VALUE_MAP.iter().cloned().enumerate() {
             assert_eq!(
-                byte_is_allowed(b as u8, match_header_value_batch_16), allowed,
+                byte_is_allowed(b as u8, match_header_value_vectored), allowed,
                 "byte_is_allowed({:?}) should be {:?}", b, allowed,
             );
         }
