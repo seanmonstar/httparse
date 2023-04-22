@@ -30,7 +30,7 @@ fn get_runtime_feature() -> u8 {
     feature
 }
 
-pub fn match_uri_vectored(bytes: &mut Bytes) {
+pub unsafe fn match_uri_vectored(bytes: &mut Bytes) {
     // SAFETY: calls are guarded by a feature check
     unsafe {
         match get_runtime_feature() {
@@ -41,7 +41,7 @@ pub fn match_uri_vectored(bytes: &mut Bytes) {
     }
 }
 
-pub fn match_header_value_vectored(bytes: &mut Bytes) {
+pub unsafe fn match_header_value_vectored(bytes: &mut Bytes) {
     // SAFETY: calls are guarded by a feature check
     unsafe {
         match get_runtime_feature() {
