@@ -152,7 +152,11 @@ fn version(c: &mut Criterion) {
         .bench_function(name, |b| b.iter(|| {
             black_box({
                 let mut b = httparse::_benchable::Bytes::new(input);
-                httparse::_benchable::parse_version(&mut b).unwrap()
+                match httparse::_benchable::parse_version(&mut b) {
+                    // Somewhat awkward, but this is internal code so it's ok.
+                    Ok(_) | Err(None) => (),
+                    Err(Some(e)) => panic!("parse_version failed: {}", e),
+                }
             });
         }));
     }
