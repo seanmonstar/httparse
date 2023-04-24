@@ -97,10 +97,10 @@ unsafe fn match_header_value_char_16_sse(buf: &[u8]) -> usize {
     let tab = _mm_cmpeq_epi8(dat, TAB);
     let del = _mm_cmpeq_epi8(dat, DEL);
     let bit = _mm_andnot_si128(del, _mm_or_si128(low, tab));
-    let rev = _mm_cmpeq_epi8(bit, _mm_setzero_si128());
-    let res = _mm_movemask_epi8(rev) as u16;
+    let res = _mm_movemask_epi8(bit) as u16;
 
-    res.trailing_zeros() as usize
+    // TODO: use .trailing_ones() once MSRV >= 1.46
+    (!res).trailing_zeros() as usize
 }
 
 #[test]
