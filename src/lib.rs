@@ -870,16 +870,22 @@ pub fn parse_method<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
     const POST: [u8; 4] = *b"POST";
     match bytes.peek_n::<[u8; 4]>(4) {
         Some(GET) => {
-            unsafe {
-                bytes.advance_and_commit(4);
-            }
-            Ok(Status::Complete("GET"))
+            // SAFETY: matched the ASCII string and boundary checked
+            let method = unsafe {
+                bytes.advance(4);
+                let buf = bytes.slice_skip(1);
+                str::from_utf8_unchecked(buf)
+            };
+            Ok(Status::Complete(method))
         }
         Some(POST) if bytes.peek_ahead(4) == Some(b' ') => {
-            unsafe {
-                bytes.advance_and_commit(5);
-            }
-            Ok(Status::Complete("POST"))
+            // SAFETY: matched the ASCII string and boundary checked
+            let method = unsafe {
+                bytes.advance(5);
+                let buf = bytes.slice_skip(1);
+                str::from_utf8_unchecked(buf)
+            };
+            Ok(Status::Complete(method))
         }
         _ => parse_token(bytes),
     }
@@ -2420,5 +2426,24 @@ mod tests {
             let x = u64::from_ne_bytes(seq);
             assert_eq!(offsetnz(x), i);
         }
+    }
+    
+    #[test]
+    fn test_method_within_buffer() {
+        const REQUEST: &[u8] = b"GET / HTTP/1.1\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 0];
+        let mut request = Request::new(&mut headers[..]);
+
+        crate::ParserConfig::default()
+            .parse_request(&mut request, REQUEST)
+            .unwrap();
+
+        // SAFETY: will not wrap
+        let buf_end = unsafe { REQUEST.as_ptr().add(REQUEST.len()) };
+        // Check that the method str is within the buffer
+        let method = request.method.unwrap();
+        assert!(REQUEST.as_ptr() <= method.as_ptr());
+        assert!(method.as_ptr() <= buf_end);
     }
 }
