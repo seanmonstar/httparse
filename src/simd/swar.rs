@@ -3,7 +3,7 @@
 use crate::{is_header_name_token, is_header_value_token, is_uri_token, Bytes};
 
 // Adapt block-size to match native register size, i.e: 32bit => 4, 64bit => 8
-const BLOCK_SIZE: usize = std::mem::size_of::<usize>();
+const BLOCK_SIZE: usize = core::mem::size_of::<usize>();
 type ByteBlock = [u8; BLOCK_SIZE];
 
 #[inline]
