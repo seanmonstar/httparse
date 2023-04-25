@@ -165,8 +165,8 @@ unsafe fn offsetz(x: uint8x16_t) -> u32 {
 unsafe fn offsetnz(x: uint8x16_t) -> u32 {
     // Extract two u64
     let x = vreinterpretq_u64_u8(x);
-    let low: u64 = std::mem::transmute(vget_low_u64(x));
-    let high: u64 = std::mem::transmute(vget_high_u64(x));
+    let low: u64 = core::mem::transmute(vget_low_u64(x));
+    let high: u64 = core::mem::transmute(vget_high_u64(x));
 
     #[inline]
     fn clz(x: u64) -> u32 {
