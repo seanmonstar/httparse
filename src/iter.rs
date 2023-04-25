@@ -1,3 +1,6 @@
+use core::convert::TryInto;
+use core::convert::TryFrom;
+
 #[allow(missing_docs)]
 pub struct Bytes<'a> {
     start: *const u8,
@@ -48,17 +51,11 @@ impl<'a> Bytes<'a> {
     }
     
     #[inline]
-    pub fn peek_n<U>(&self, n: usize) -> Option<U> {
+    pub fn peek_n<'b: 'a, U: TryFrom<&'a [u8]>>(&'b self, n: usize) -> Option<U> {
+        // TODO: once we bump MSRC, use const generics to allow only [u8; N] reads
         // TODO: drop `n` arg in favour of const
         // let n = core::mem::size_of::<U>();
-        // Boundary check then read array from ptr
-        if self.len() >= n {
-            let ptr = self.cursor as *const U;
-            let x = unsafe { core::ptr::read_unaligned(ptr) };
-            Some(x)
-        } else {
-            None
-        }
+        self.as_ref().get(..n)?.try_into().ok()
     }
 
     #[inline]
