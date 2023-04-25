@@ -7,9 +7,10 @@ pub unsafe fn match_uri_vectored(bytes: &mut Bytes) {
         bytes.advance(advance);
 
         if advance != 16 {
-            break;
+            return;
         }
     }
+    super::swar::match_uri_vectored(bytes);
 }
 
 #[inline(always)]
@@ -67,9 +68,10 @@ pub unsafe fn match_header_value_vectored(bytes: &mut Bytes) {
         bytes.advance(advance);
 
        if advance != 16 {
-            break;
+            return;
        }
     }
+    super::swar::match_header_value_vectored(bytes);
 }
 
 #[inline(always)]
