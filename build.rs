@@ -1,11 +1,10 @@
 use std::env;
-//use std::ffi::OsString;
-//use std::process::Command;
+use std::ffi::OsString;
+use std::process::Command;
 
 fn main() {
-    // We don't currently need to check the Version anymore...
-    // But leaving this in place in case we need to in the future.
-    /*
+    // We check rustc version to enable features beyond MSRV, such as:
+    // - 1.59 => neon_intrinsics
     let rustc = env::var_os("RUSTC").unwrap_or(OsString::from("rustc"));
     let output = Command::new(&rustc)
         .arg("--version")
@@ -13,28 +12,25 @@ fn main() {
         .expect("failed to check 'rustc --version'")
         .stdout;
 
-    let version = String::from_utf8(output)
+    let raw_version = String::from_utf8(output)
         .expect("rustc version output should be utf-8");
-    */
-
-    enable_new_features(/*&version*/);
-}
-
-fn enable_new_features(/*raw_version: &str*/) {
-    /*
-    let version = match Version::parse(raw_version) {
+    
+    let version = match Version::parse(&raw_version) {
         Ok(version) => version,
         Err(err) => {
             println!("cargo:warning=failed to parse `rustc --version`: {}", err);
             return;
         }
     };
-    */
 
-    enable_simd(/*version*/);
+    enable_new_features(version);
 }
 
-fn enable_simd(/*version: Version*/) {
+fn enable_new_features(version: Version) {
+    enable_simd(version);
+}
+
+fn enable_simd(version: Version) {
     if env::var_os("CARGO_FEATURE_STD").is_none() {
         println!("cargo:warning=building for no_std disables httparse SIMD");
         return;
@@ -48,6 +44,11 @@ fn enable_simd(/*version: Version*/) {
     if var_is(env_disable, "1") {
         println!("cargo:warning=detected {} environment variable, disabling SIMD", env_disable);
         return;
+    }
+
+    // 1.59.0 is the first version to support neon_intrinsics
+    if version >= Version(1, 59, 0) {
+        println!("cargo:rustc-cfg=httparse_simd_neon_intrinsics");
     }
 
     println!("cargo:rustc-cfg=httparse_simd");
@@ -83,79 +84,43 @@ fn enable_simd(/*version: Version*/) {
             return
         },
     };
-
-    let mut saw_sse42 = false;
-    let mut saw_avx2 = false;
-
-    for feature in feature_list.split(',') {
-        let feature = feature.trim();
-        if !saw_sse42 && feature == "sse4.2" {
-            saw_sse42 = true;
-            println!("cargo:rustc-cfg=httparse_simd_target_feature_sse42");
-        }
-
-        if !saw_avx2 && feature == "avx2" {
-            saw_avx2 = true;
-            println!("cargo:rustc-cfg=httparse_simd_target_feature_avx2");
-        }
+    
+    let features = feature_list.split(',').map(|s| s.trim());
+    if features.clone().any(|f| f == "sse4.2") {
+        println!("cargo:rustc-cfg=httparse_simd_target_feature_sse42");
+    }
+    if features.clone().any(|f| f == "avx2") {
+        println!("cargo:rustc-cfg=httparse_simd_target_feature_avx2");
     }
 }
 
-/*
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
-struct Version {
-    major: u32,
-    minor: u32,
-    patch: u32,
-}
+struct Version (u32, u32, u32);
 
 impl Version {
-    fn parse(mut s: &str) -> Result<Version, String> {
+    fn parse(s: &str) -> Result<Version, String> {
         if !s.starts_with("rustc ") {
             return Err(format!("unrecognized version string: {}", s));
         }
-        s = &s["rustc ".len()..];
-
-        let parts: Vec<&str> = s.split(".").collect();
-        if parts.len() < 3 {
-            return Err(format!("not enough version parts: {:?}", parts));
+        let s = s.trim_start_matches("rustc ");
+        
+        let mut iter = s
+            .split(".")
+            .take(3)
+            .map(|s| s.trim_end_matches(|c: char| !c.is_digit(10)))
+            .map(|s| s.parse::<u32>().map_err(|e| e.to_string()));
+    
+        if iter.clone().count() != 3 {
+            return Err(format!("not enough version parts: {:?}", s));
         }
+        
+        let major = iter.next().unwrap()?;
+        let minor = iter.next().unwrap()?;
+        let patch = iter.next().unwrap()?;
 
-        let mut num = String::new();
-        for c in parts[0].chars() {
-            if !c.is_digit(10) {
-                break;
-            }
-            num.push(c);
-        }
-        let major = num.parse::<u32>().map_err(|e| e.to_string())?;
-
-        num.clear();
-        for c in parts[1].chars() {
-            if !c.is_digit(10) {
-                break;
-            }
-            num.push(c);
-        }
-        let minor = num.parse::<u32>().map_err(|e| e.to_string())?;
-
-        num.clear();
-        for c in parts[2].chars() {
-            if !c.is_digit(10) {
-                break;
-            }
-            num.push(c);
-        }
-        let patch = num.parse::<u32>().map_err(|e| e.to_string())?;
-
-        Ok(Version {
-            major: major,
-            minor: minor,
-            patch: patch,
-        })
+        Ok(Version(major, minor, patch))
     }
 }
-*/
 
 fn var_is(key: &str, val: &str) -> bool {
     match env::var(key) {
