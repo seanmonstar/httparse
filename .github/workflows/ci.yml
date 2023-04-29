@@ -15,7 +15,8 @@ jobs:
     needs:
       - test
       - simd
-      - msrv
+      - msrv_x64
+      - msrv_aarch64
       - miri
     steps:
       - run: exit 0
@@ -109,8 +110,8 @@ jobs:
           RUSTFLAGS: -C target_feature=${{ matrix.target_feature }}
           CARGO_CFG_HTTPARSE_DISABLE_SIMD_COMPILETIME: ${{ matrix.disable_compiletime }}
 
-  msrv:
-    name: msrv
+  msrv_x64:
+    name: msrv (x64)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -128,6 +129,31 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
+
+  # This tests that aarch64 gracefully fallbacks to SWAR if neon_intrinsics aren't available (<1.59)
+  msrv_aarch64:
+    name: msrv (aarch64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: 1.36.0
+          override: true
+          target: aarch64-unknown-linux-gnu
+
+      - name: Install cross-compiling dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build tests
+        run: cargo build --tests --target aarch64-unknown-linux-gnu
+
 
   miri:
     name: Test with Miri
