@@ -107,7 +107,10 @@ impl Version {
         let mut iter = s
             .split(".")
             .take(3)
-            .map(|s| s.trim_end_matches(|c: char| !c.is_digit(10)))
+            .map(|s| match s.find(|c: char| !c.is_ascii_digit()) {
+                Some(end) => &s[..end],
+                None => s,
+            })
             .map(|s| s.parse::<u32>().map_err(|e| e.to_string()));
     
         if iter.clone().count() != 3 {
