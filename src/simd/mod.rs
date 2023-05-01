@@ -5,7 +5,10 @@ mod swar;
     any(
         target_arch = "x86",
         target_arch = "x86_64",
-        target_arch = "aarch64",
+        all(
+            target_arch = "aarch64",
+            httparse_simd_neon_intrinsics,
+        )
     ),
 )))]
 pub use self::swar::*;
@@ -137,11 +140,13 @@ pub use self::avx2_compile_time::*;
 #[cfg(all(
     httparse_simd,
     target_arch = "aarch64",
+    httparse_simd_neon_intrinsics,
 ))]
 mod neon;
 
 #[cfg(all(
     httparse_simd,
     target_arch = "aarch64",
+    httparse_simd_neon_intrinsics,
 ))]
 pub use self::neon::*;
