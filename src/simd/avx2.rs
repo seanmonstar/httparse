@@ -108,10 +108,9 @@ unsafe fn match_header_value_char_32_avx(buf: &[u8]) -> usize {
     let tab = _mm256_cmpeq_epi8(dat, TAB);
     let del = _mm256_cmpeq_epi8(dat, DEL);
     let bit = _mm256_andnot_si256(del, _mm256_or_si256(low, tab));
-    let rev = _mm256_cmpeq_epi8(bit, _mm256_setzero_si256());
-    let res = _mm256_movemask_epi8(rev) as u32;
-
-    res.trailing_zeros() as usize
+    let res = _mm256_movemask_epi8(bit) as u32;
+    // TODO: use .trailing_ones() once MSRV >= 1.46
+    (!res).trailing_zeros() as usize
 }
 
 #[test]
