@@ -6,7 +6,7 @@ fn main() {
     // We check rustc version to enable features beyond MSRV, such as:
     // - 1.59 => neon_intrinsics
     let rustc = env::var_os("RUSTC").unwrap_or(OsString::from("rustc"));
-    let output = Command::new(&rustc)
+    let output = Command::new(rustc)
         .arg("--version")
         .output()
         .expect("failed to check 'rustc --version'")
@@ -105,7 +105,7 @@ impl Version {
         let s = s.trim_start_matches("rustc ");
         
         let mut iter = s
-            .split(".")
+            .split('.')
             .take(3)
             .map(|s| match s.find(|c: char| !c.is_ascii_digit()) {
                 Some(end) => &s[..end],
