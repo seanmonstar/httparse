@@ -109,6 +109,7 @@ fn sse_code_matches_uri_chars_table() {
         return;
     }
 
+    #[allow(clippy::undocumented_unsafe_blocks)]
     unsafe {
         assert!(byte_is_allowed(b'_', match_uri_vectored));
 
@@ -127,6 +128,7 @@ fn sse_code_matches_header_value_chars_table() {
         return;
     }
 
+    #[allow(clippy::undocumented_unsafe_blocks)]
     unsafe {
         assert!(byte_is_allowed(b'_', match_header_value_vectored));
 
@@ -139,6 +141,7 @@ fn sse_code_matches_header_value_chars_table() {
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 #[cfg(test)]
 unsafe fn byte_is_allowed(byte: u8, f: unsafe fn(bytes: &mut Bytes<'_>)) -> bool {
     let slice = [

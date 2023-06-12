@@ -11,6 +11,8 @@ pub fn match_uri_vectored(bytes: &mut Bytes) {
     loop {
         if let Some(bytes8) = bytes.peek_n::<ByteBlock>(BLOCK_SIZE) {
             let n = match_uri_char_8_swar(bytes8);
+            // SAFETY: using peek_n to retrieve the bytes ensures that there are at least n more bytes
+            // in `bytes`, so calling `advance(n)` is safe.
             unsafe {
                 bytes.advance(n);
             }
@@ -20,7 +22,11 @@ pub fn match_uri_vectored(bytes: &mut Bytes) {
         }
         if let Some(b) = bytes.peek() {
             if is_uri_token(b) {
-                unsafe { bytes.advance(1); }
+                // SAFETY: using peek to retrieve the byte ensures that there is at least 1 more byte
+                // in bytes, so calling advance is safe.
+                unsafe {
+                    bytes.advance(1);
+                }
                 continue;
             }
         }
@@ -33,6 +39,8 @@ pub fn match_header_value_vectored(bytes: &mut Bytes) {
     loop {
         if let Some(bytes8) = bytes.peek_n::<ByteBlock>(BLOCK_SIZE) {
             let n = match_header_value_char_8_swar(bytes8);
+            // SAFETY: using peek_n to retrieve the bytes ensures that there are at least n more bytes
+            // in `bytes`, so calling `advance(n)` is safe.
             unsafe {
                 bytes.advance(n);
             }
@@ -42,7 +50,11 @@ pub fn match_header_value_vectored(bytes: &mut Bytes) {
         }
         if let Some(b) = bytes.peek() {
             if is_header_value_token(b) {
-                unsafe { bytes.advance(1); }
+                // SAFETY: using peek to retrieve the byte ensures that there is at least 1 more byte
+                // in bytes, so calling advance is safe.
+                unsafe {
+                    bytes.advance(1);
+                }
                 continue;
             }
         }
@@ -54,6 +66,8 @@ pub fn match_header_value_vectored(bytes: &mut Bytes) {
 pub fn match_header_name_vectored(bytes: &mut Bytes) {
     while let Some(block) = bytes.peek_n::<ByteBlock>(BLOCK_SIZE) {
         let n = match_block(is_header_name_token, block);
+        // SAFETY: using peek_n to retrieve the bytes ensures that there are at least n more bytes
+        // in `bytes`, so calling `advance(n)` is safe.
         unsafe {
             bytes.advance(n);
         }
@@ -61,6 +75,8 @@ pub fn match_header_name_vectored(bytes: &mut Bytes) {
             return;
         }
     }
+    // SAFETY: match_tail processes at most the remaining data in `bytes`. advances `bytes` to the
+    // end, but no further.
     unsafe { bytes.advance(match_tail(is_header_name_token, bytes.as_ref())) };
 }
 
@@ -184,15 +200,15 @@ fn test_is_header_value_block() {
 
     // 0..32 => false
     for b in 0..32_u8 {
-        assert_eq!(is_header_value_block([b; BLOCK_SIZE]), false, "b={}", b);
+        assert!(!is_header_value_block([b; BLOCK_SIZE]), "b={}", b);
     }
     // 32..127 => true
     for b in 32..127_u8 {
-        assert_eq!(is_header_value_block([b; BLOCK_SIZE]), true, "b={}", b);
+        assert!(is_header_value_block([b; BLOCK_SIZE]), "b={}", b);
     }
     // 127..=255 => false
     for b in 127..=255_u8 {
-        assert_eq!(is_header_value_block([b; BLOCK_SIZE]), false, "b={}", b);
+        assert!(!is_header_value_block([b; BLOCK_SIZE]), "b={}", b);
     }
 
     // A few sanity checks on non-uniform bytes for safe-measure
@@ -206,7 +222,7 @@ fn test_is_uri_block() {
 
     // 0..33 => false
     for b in 0..33_u8 {
-        assert_eq!(is_uri_block([b; BLOCK_SIZE]), false, "b={}", b);
+        assert!(!is_uri_block([b; BLOCK_SIZE]), "b={}", b);
     }
     // 33..127 => true if b not in { '<', '?', '>' }
     let falsy = |b| b"<?>".contains(&b);
@@ -215,7 +231,7 @@ fn test_is_uri_block() {
     }
     // 127..=255 => false
     for b in 127..=255_u8 {
-        assert_eq!(is_uri_block([b; BLOCK_SIZE]), false, "b={}", b);
+        assert!(!is_uri_block([b; BLOCK_SIZE]), "b={}", b);
     }
 }
 
@@ -223,7 +239,7 @@ fn test_is_uri_block() {
 fn test_offsetnz() {
     let seq = [0_u8; BLOCK_SIZE];
     for i in 0..BLOCK_SIZE {
-        let mut seq = seq.clone();
+        let mut seq = seq;
         seq[i] = 1;
         let x = usize::from_ne_bytes(seq);
         assert_eq!(offsetnz(x), i);

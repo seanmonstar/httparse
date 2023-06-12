@@ -4,6 +4,7 @@ use core::arch::aarch64::*;
 #[inline]
 pub fn match_header_name_vectored(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 16 {
+        // SAFETY: ensured that there are at least 16 bytes remaining 
         unsafe {
             let advance = match_header_name_char_16_neon(bytes.as_ref().as_ptr());
             bytes.advance(advance);
@@ -19,6 +20,7 @@ pub fn match_header_name_vectored(bytes: &mut Bytes) {
 #[inline]
 pub fn match_header_value_vectored(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 16 {
+        // SAFETY: ensured that there are at least 16 bytes remaining 
         unsafe {
             let advance = match_header_value_char_16_neon(bytes.as_ref().as_ptr());
             bytes.advance(advance);
@@ -34,6 +36,7 @@ pub fn match_header_value_vectored(bytes: &mut Bytes) {
 #[inline]
 pub fn match_uri_vectored(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 16 {
+        // SAFETY: ensured that there are at least 16 bytes remaining 
         unsafe {
             let advance = match_url_char_16_neon(bytes.as_ref().as_ptr());
             bytes.advance(advance);
@@ -182,7 +185,7 @@ unsafe fn offsetnz(x: uint8x16_t) -> u32 {
     }
 
     if low != 0 {
-        return clz(low);
+        clz(low)
     } else if high != 0 {
         return 8 + clz(high);
     } else {
@@ -192,6 +195,7 @@ unsafe fn offsetnz(x: uint8x16_t) -> u32 {
 
 #[test]
 fn neon_code_matches_uri_chars_table() {
+    #[allow(clippy::undocumented_unsafe_blocks)]
     unsafe {
         assert!(byte_is_allowed(b'_', match_uri_vectored));
 
@@ -209,6 +213,7 @@ fn neon_code_matches_uri_chars_table() {
 
 #[test]
 fn neon_code_matches_header_value_chars_table() {
+    #[allow(clippy::undocumented_unsafe_blocks)]
     unsafe {
         assert!(byte_is_allowed(b'_', match_header_value_vectored));
 
@@ -226,6 +231,7 @@ fn neon_code_matches_header_value_chars_table() {
 
 #[test]
 fn neon_code_matches_header_name_chars_table() {
+    #[allow(clippy::undocumented_unsafe_blocks)]
     unsafe {
         assert!(byte_is_allowed(b'_', match_header_name_vectored));
 

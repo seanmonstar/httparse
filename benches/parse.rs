@@ -112,9 +112,10 @@ fn header(c: &mut Criterion) {
         c.benchmark_group("header")
         .throughput(Throughput::Bytes(input.len() as u64))
         .bench_function(name, |b| b.iter(|| {
-            black_box({
+            {
                 let _ = httparse::parse_headers(input, &mut headers).unwrap();
-            });
+            };
+            black_box(());
         }));
     }
         
