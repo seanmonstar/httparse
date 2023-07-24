@@ -260,6 +260,7 @@ pub struct ParserConfig {
     allow_multiple_spaces_in_request_line_delimiters: bool,
     allow_multiple_spaces_in_response_status_delimiters: bool,
     ignore_invalid_headers_in_responses: bool,
+    ignore_invalid_headers_in_requests: bool,
 }
 
 impl ParserConfig {
@@ -412,6 +413,14 @@ impl ParserConfig {
         self
     }
 
+    pub fn ignore_invalid_headers_in_requests(
+        &mut self,
+        value: bool,
+    ) -> &mut Self {
+        self.ignore_invalid_headers_in_requests = value;
+        self
+    }
+
     /// Parses a response with the given config.
     pub fn parse_response<'buf>(
         &self,
@@ -506,7 +515,11 @@ impl<'h, 'b> Request<'h, 'b> {
         let headers_len = complete!(parse_headers_iter_uninit(
             &mut headers,
             &mut bytes,
-            &ParserConfig::default(),
+            &HeaderParserConfig {
+                allow_spaces_after_header_name: false,
+                allow_obsolete_multiline_headers: false,
+                ignore_invalid_headers: config.ignore_invalid_headers_in_requests
+            },
         ));
         /* SAFETY: see `parse_headers_iter_uninit` guarantees */
         self.headers = unsafe { assume_init_slice(headers) };
@@ -699,7 +712,11 @@ impl<'h, 'b> Response<'h, 'b> {
         let headers_len = complete!(parse_headers_iter_uninit(
             &mut headers,
             &mut bytes,
-            config
+            &HeaderParserConfig {
+                allow_spaces_after_header_name: config.allow_spaces_after_header_name_in_responses,
+                allow_obsolete_multiline_headers: config.allow_obsolete_multiline_headers_in_responses,
+                ignore_invalid_headers: config.ignore_invalid_headers_in_responses
+            }
         ));
         /* SAFETY: see `parse_headers_iter_uninit` guarantees */
         self.headers = unsafe { assume_init_slice(headers) };
@@ -950,7 +967,7 @@ pub fn parse_headers<'b: 'h, 'h>(
     mut dst: &'h mut [Header<'b>],
 ) -> Result<(usize, &'h [Header<'b>])> {
     let mut iter = Bytes::new(src);
-    let pos = complete!(parse_headers_iter(&mut dst, &mut iter, &ParserConfig::default()));
+    let pos = complete!(parse_headers_iter(&mut dst, &mut iter, &HeaderParserConfig::default()));
     Ok(Status::Complete((pos, dst)))
 }
 
@@ -958,7 +975,7 @@ pub fn parse_headers<'b: 'h, 'h>(
 fn parse_headers_iter<'a>(
     headers: &mut &mut [Header<'a>],
     bytes: &mut Bytes<'a>,
-    config: &ParserConfig,
+    config: &HeaderParserConfig,
 ) -> Result<usize> {
     parse_headers_iter_uninit(
         /* SAFETY: see `parse_headers_iter_uninit` guarantees */
@@ -979,6 +996,13 @@ unsafe fn assume_init_slice<T>(s: &mut [MaybeUninit<T>]) -> &mut [T] {
     &mut *s
 }
 
+#[derive(Clone, Debug, Default)]
+struct HeaderParserConfig {
+    allow_spaces_after_header_name: bool,
+    allow_obsolete_multiline_headers: bool,
+    ignore_invalid_headers: bool,
+}
+
 /* Function which parsers headers into uninitialized buffer.
  *
  * Guarantees that it doesn't write garbage, so casting
@@ -991,7 +1015,7 @@ unsafe fn assume_init_slice<T>(s: &mut [MaybeUninit<T>]) -> &mut [T] {
 fn parse_headers_iter_uninit<'a>(
     headers: &mut &mut [MaybeUninit<Header<'a>>],
     bytes: &mut Bytes<'a>,
-    config: &ParserConfig,
+    config: &HeaderParserConfig
 ) -> Result<usize> {
 
     /* Flow of this function is pretty complex, especially with macros,
@@ -1026,7 +1050,7 @@ fn parse_headers_iter_uninit<'a>(
 
     macro_rules! maybe_continue_after_obsolete_line_folding {
         ($bytes:ident, $label:lifetime) => {
-            if config.allow_obsolete_multiline_headers_in_responses {
+            if config.allow_obsolete_multiline_headers {
                 match $bytes.peek() {
                     None => {
                         // Next byte may be a space, in which case that header
@@ -1055,7 +1079,7 @@ fn parse_headers_iter_uninit<'a>(
         // parsing on the next one.
         macro_rules! handle_invalid_char {
             ($bytes:ident, $b:ident, $err:ident) => {
-                if !config.ignore_invalid_headers_in_responses {
+                if !config.ignore_invalid_headers {
                     return Err(Error::$err);
                 }
 
@@ -1114,7 +1138,7 @@ fn parse_headers_iter_uninit<'a>(
                 break 'name name;
             }
 
-            if config.allow_spaces_after_header_name_in_responses {
+            if config.allow_spaces_after_header_name {
                 while b == b' ' || b == b'\t' {
                     b = next!(bytes);
 
@@ -1995,6 +2019,16 @@ mod tests {
             .allow_multiple_spaces_in_request_line_delimiters(true)
             .parse_request(&mut request, REQUEST_WITH_WEIRD_WHITESPACE_DELIMITERS);
         assert_eq!(result, Err(crate::Error::Token));
+    }
+
+    #[test]
+    fn test_allow_request_with_weird_whitespace_delimiters() {
+        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+        let mut request = Request::new(&mut headers[..]);
+        let result = crate::ParserConfig::default()
+            .ignore_invalid_headers_in_requests(true)
+            .parse_request(&mut request, REQUEST_WITH_WEIRD_WHITESPACE_DELIMITERS);
+        assert!(result.is_ok());
     }
 
     static REQUEST_WITH_MULTIPLE_SPACES_AND_BAD_PATH: &[u8] = b"GET   /foo>ohno HTTP/1.1\r\n\r\n";
