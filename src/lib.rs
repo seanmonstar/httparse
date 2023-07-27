@@ -2128,7 +2128,25 @@ mod tests {
     }
 
     #[test]
-    fn test_ignore_header_line_with_missing_colon() {
+    fn test_request_with_invalid_char_between_header_name_and_colon() {
+        const REQUEST: &[u8] =
+            b"GET / HTTP/1.1\r\nAccess-Control-Allow-Credentials\xFF  : true\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut request = Request::new(&mut headers[..]);
+
+        let result = crate::ParserConfig::default()
+            .parse_request(&mut request, REQUEST);
+        assert_eq!(result, Err(crate::Error::HeaderName));
+
+        let result = crate::ParserConfig::default()
+            .ignore_invalid_headers_in_requests(true)
+            .parse_request(&mut request, REQUEST);
+        assert_eq!(result, Ok(Status::Complete(78)));
+    }
+
+    #[test]
+    fn test_ignore_header_line_with_missing_colon_in_response() {
         const RESPONSE: &[u8] =
             b"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Credentials\r\nBread: baguette\r\n\r\n";
 
@@ -2153,7 +2171,25 @@ mod tests {
     }
 
     #[test]
-    fn test_header_with_missing_colon_with_folding() {
+    fn test_ignore_header_line_with_missing_colon_in_request() {
+        const REQUEST: &[u8] =
+            b"GET / HTTP/1.1\r\nAccess-Control-Allow-Credentials\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut request = Request::new(&mut headers[..]);
+
+        let result = crate::ParserConfig::default()
+            .parse_request(&mut request, REQUEST);
+        assert_eq!(result, Err(crate::Error::HeaderName));
+
+        let result = crate::ParserConfig::default()
+            .ignore_invalid_headers_in_requests(true)
+            .parse_request(&mut request, REQUEST);
+        assert_eq!(result, Ok(Status::Complete(69)));
+    }
+
+    #[test]
+    fn test_response_header_with_missing_colon_with_folding() {
         const RESPONSE: &[u8] =
             b"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Credentials   \r\n hello\r\nBread: baguette\r\n\r\n";
 
@@ -2180,7 +2216,25 @@ mod tests {
     }
 
     #[test]
-    fn test_header_with_nul_in_header_name() {
+    fn test_request_header_with_missing_colon_with_folding() {
+        const REQUEST: &[u8] =
+            b"GET / HTTP/1.1\r\nAccess-Control-Allow-Credentials   \r\n hello\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut request = Request::new(&mut headers[..]);
+
+        let result = crate::ParserConfig::default()
+            .parse_request(&mut request, REQUEST);
+        assert_eq!(result, Err(crate::Error::HeaderName));
+
+        let result = crate::ParserConfig::default()
+            .ignore_invalid_headers_in_requests(true)
+            .parse_request(&mut request, REQUEST);
+        assert_eq!(result, Ok(Status::Complete(80)));
+    }
+
+    #[test]
+    fn test_response_header_with_nul_in_header_name() {
         const RESPONSE: &[u8] =
             b"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Cred\0entials: hello\r\nBread: baguette\r\n\r\n";
 
