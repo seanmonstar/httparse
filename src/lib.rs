@@ -413,6 +413,7 @@ impl ParserConfig {
         self
     }
 
+    /// Sets whether invalid header lines should be silently ignored in requests.
     pub fn ignore_invalid_headers_in_requests(
         &mut self,
         value: bool,
@@ -1326,6 +1327,7 @@ pub fn parse_chunk_size(buf: &[u8])
 
 #[cfg(test)]
 mod tests {
+    use crate::Error;
     use super::{Request, Response, Status, EMPTY_HEADER, parse_chunk_size};
 
     const NUM_OF_HEADERS: usize = 4;
@@ -1757,7 +1759,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ignore_header_line_with_whitespaces_after_header_name() {
+    fn test_ignore_header_line_with_whitespaces_after_header_name_in_response() {
         let mut headers = [EMPTY_HEADER; 2];
         let mut response = Response::new(&mut headers[..]);
         let result = crate::ParserConfig::default()
@@ -1783,6 +1785,17 @@ mod tests {
         let result = request.parse(REQUEST_WITH_WHITESPACE_BETWEEN_HEADER_NAME_AND_COLON);
 
         assert_eq!(result, Err(crate::Error::HeaderName));
+    }
+
+    #[test]
+    fn test_ignore_header_line_with_whitespaces_after_header_name_in_request() {
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut request = Request::new(&mut headers[..]);
+        let result = crate::ParserConfig::default()
+            .ignore_invalid_headers_in_requests(true)
+            .parse_request(&mut request, REQUEST_WITH_WHITESPACE_BETWEEN_HEADER_NAME_AND_COLON);
+
+        assert_eq!(result, Ok(Status::Complete(36)));
     }
 
     static RESPONSE_WITH_OBSOLETE_LINE_FOLDING_AT_START: &[u8] =
@@ -2021,16 +2034,6 @@ mod tests {
         assert_eq!(result, Err(crate::Error::Token));
     }
 
-    #[test]
-    fn test_allow_request_with_weird_whitespace_delimiters() {
-        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
-        let mut request = Request::new(&mut headers[..]);
-        let result = crate::ParserConfig::default()
-            .ignore_invalid_headers_in_requests(true)
-            .parse_request(&mut request, REQUEST_WITH_WEIRD_WHITESPACE_DELIMITERS);
-        assert!(result.is_ok());
-    }
-
     static REQUEST_WITH_MULTIPLE_SPACES_AND_BAD_PATH: &[u8] = b"GET   /foo>ohno HTTP/1.1\r\n\r\n";
 
     #[test]
@@ -2079,6 +2082,24 @@ mod tests {
         assert_eq!(response.headers.len(), 1);
         assert_eq!(response.headers[0].name, "Bread");
         assert_eq!(response.headers[0].value, &b"baguette"[..]);
+    }
+
+    #[test]
+    fn test_request_with_empty_header_name() {
+        const RESPONSE: &[u8] =
+            b"GET / HTTP/1.1\r\n: hello\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut request = Request::new(&mut headers[..]);
+
+        let result = crate::ParserConfig::default()
+            .parse_request(&mut request, RESPONSE);
+        assert_eq!(result, Err(Error::HeaderName));
+
+        let result = crate::ParserConfig::default()
+            .ignore_invalid_headers_in_requests(true)
+            .parse_request(&mut request, RESPONSE);
+        assert_eq!(result, Ok(Status::Complete(44)));
     }
 
     #[test]
@@ -2252,6 +2273,24 @@ mod tests {
     }
 
     #[test]
+    fn test_request_header_with_nul_in_header_name() {
+        const REQUEST: &[u8] =
+            b"GET / HTTP/1.1\r\nAccess-Control-Allow-Cred\0entials: hello\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut request = Request::new(&mut headers[..]);
+
+        let result = crate::ParserConfig::default()
+            .parse_request(&mut request, REQUEST);
+        assert_eq!(result, Err(crate::Error::HeaderName));
+
+        let result = crate::ParserConfig::default()
+            .ignore_invalid_headers_in_requests(true)
+            .parse_request(&mut request, REQUEST);
+        assert_eq!(result, Err(crate::Error::HeaderName));
+    }
+
+    #[test]
     fn test_header_with_cr_in_header_name() {
         const RESPONSE: &[u8] =
             b"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Cred\rentials: hello\r\nBread: baguette\r\n\r\n";
@@ -2266,6 +2305,21 @@ mod tests {
         let result = crate::ParserConfig::default()
             .ignore_invalid_headers_in_responses(true)
             .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Err(crate::Error::HeaderName));
+
+        const REQUEST: &[u8] =
+            b"GET / HTTP/1.1\r\nAccess-Control-Allow-Cred\rentials: hello\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut request = Request::new(&mut headers[..]);
+
+        let result = crate::ParserConfig::default()
+            .parse_request(&mut request, REQUEST);
+        assert_eq!(result, Err(crate::Error::HeaderName));
+
+        let result = crate::ParserConfig::default()
+            .ignore_invalid_headers_in_requests(true)
+            .parse_request(&mut request, REQUEST);
         assert_eq!(result, Err(crate::Error::HeaderName));
     }
 
@@ -2287,6 +2341,17 @@ mod tests {
             .ignore_invalid_headers_in_responses(true)
             .parse_response(&mut response, RESPONSE);
         assert_eq!(result, Err(crate::Error::HeaderName));
+
+        const REQUEST: &[u8] =
+            b"GET / HTTP/1.1\r\nAccess-Control-Allow-Credentials   \0: hello\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut request = Request::new(&mut headers[..]);
+
+        let result = crate::ParserConfig::default()
+            .ignore_invalid_headers_in_requests(true)
+            .parse_request(&mut request, REQUEST);
+        assert_eq!(result, Err(crate::Error::HeaderName));
     }
 
     #[test]
@@ -2304,6 +2369,21 @@ mod tests {
         let result = crate::ParserConfig::default()
             .ignore_invalid_headers_in_responses(true)
             .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Err(crate::Error::HeaderValue));
+
+        const REQUEST: &[u8] =
+            b"GET / HTTP/1.1\r\nAccess-Control-Allow-Credentials: hell\0o\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut request = Request::new(&mut headers[..]);
+
+        let result = crate::ParserConfig::default()
+            .parse_request(&mut request, REQUEST);
+        assert_eq!(result, Err(crate::Error::HeaderValue));
+
+        let result = crate::ParserConfig::default()
+            .ignore_invalid_headers_in_requests(true)
+            .parse_request(&mut request, REQUEST);
         assert_eq!(result, Err(crate::Error::HeaderValue));
     }
 
@@ -2330,6 +2410,28 @@ mod tests {
         assert_eq!(response.headers.len(), 1);
         assert_eq!(response.headers[0].name, "Bread");
         assert_eq!(response.headers[0].value, &b"baguette"[..]);
+
+        const REQUEST: &[u8] =
+            b"GET / HTTP/1.1\r\nAccess-Control-Allow-Credentials: hell\x01o\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut request = Request::new(&mut headers[..]);
+
+        let result = crate::ParserConfig::default()
+            .parse_request(&mut request, REQUEST);
+        assert_eq!(result, Err(crate::Error::HeaderValue));
+
+        let result = crate::ParserConfig::default()
+            .ignore_invalid_headers_in_requests(true)
+            .parse_request(&mut request, REQUEST);
+        assert_eq!(result, Ok(Status::Complete(77)));
+
+        assert_eq!(request.version.unwrap(), 1);
+        assert_eq!(request.method.unwrap(), "GET");
+        assert_eq!(request.path.unwrap(), "/");
+        assert_eq!(request.headers.len(), 1);
+        assert_eq!(request.headers[0].name, "Bread");
+        assert_eq!(request.headers[0].value, &b"baguette"[..]);
     }
 
     #[test]
@@ -2355,6 +2457,28 @@ mod tests {
         assert_eq!(response.headers.len(), 1);
         assert_eq!(response.headers[0].name, "Bread");
         assert_eq!(response.headers[0].value, &b"baguette"[..]);
+
+        const REQUEST: &[u8] =
+            b"GET / HTTP/1.1\r\nAccess-Control-Allow-Credentials: hell\x01o  \n world!\r\nBread: baguette\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut request = Request::new(&mut headers[..]);
+
+        let result = crate::ParserConfig::default()
+            .parse_request(&mut request, REQUEST);
+        assert_eq!(result, Err(crate::Error::HeaderValue));
+
+        let result = crate::ParserConfig::default()
+            .ignore_invalid_headers_in_requests(true)
+            .parse_request(&mut request, REQUEST);
+        assert_eq!(result, Ok(Status::Complete(87)));
+
+        assert_eq!(request.version.unwrap(), 1);
+        assert_eq!(request.method.unwrap(), "GET");
+        assert_eq!(request.path.unwrap(), "/");
+        assert_eq!(request.headers.len(), 1);
+        assert_eq!(request.headers[0].name, "Bread");
+        assert_eq!(request.headers[0].value, &b"baguette"[..]);
     }
 
     #[test]
