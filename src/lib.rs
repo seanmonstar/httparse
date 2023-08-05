@@ -2093,7 +2093,7 @@ mod tests {
 
         let result = crate::ParserConfig::default()
             .parse_request(&mut request, RESPONSE);
-        assert_eq!(result, Err(Error::HeaderName));
+        assert_eq!(result, Err(crate::Error::HeaderName));
 
         let result = crate::ParserConfig::default()
             .ignore_invalid_headers_in_requests(true)
