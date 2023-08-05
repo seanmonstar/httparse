@@ -1327,7 +1327,6 @@ pub fn parse_chunk_size(buf: &[u8])
 
 #[cfg(test)]
 mod tests {
-    use crate::Error;
     use super::{Request, Response, Status, EMPTY_HEADER, parse_chunk_size};
 
     const NUM_OF_HEADERS: usize = 4;
