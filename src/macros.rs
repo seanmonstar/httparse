@@ -1,4 +1,4 @@
-///! Utility macros
+//! Utility macros
 
 macro_rules! next {
     ($bytes:ident) => ({
