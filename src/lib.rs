@@ -259,6 +259,7 @@ pub struct ParserConfig {
     allow_obsolete_multiline_headers_in_responses: bool,
     allow_multiple_spaces_in_request_line_delimiters: bool,
     allow_multiple_spaces_in_response_status_delimiters: bool,
+    allow_space_before_first_header_name: bool,
     ignore_invalid_headers_in_responses: bool,
     ignore_invalid_headers_in_requests: bool,
 }
@@ -354,6 +355,39 @@ impl ParserConfig {
     /// Whether obsolete multiline headers should be allowed.
     pub fn obsolete_multiline_headers_in_responses_are_allowed(&self) -> bool {
         self.allow_obsolete_multiline_headers_in_responses
+    }
+
+    /// Sets whether white space before the first header is allowed
+    ///
+    /// This is not allowed by spec but some browsers ignore it. So this an option for
+    /// compatibility.
+    /// See https://github.com/curl/curl/issues/11605 for reference
+    /// # Example
+    ///
+    /// ```rust
+    /// let buf = b"HTTP/1.1 200 OK\r\n Space-Before-Header: hello there\r\n\r\n";
+    /// let mut headers = [httparse::EMPTY_HEADER; 1];
+    /// let mut response = httparse::Response::new(&mut headers[..]);
+    /// let result = httparse::ParserConfig::default()
+    ///     .allow_space_before_first_header_name(true)
+    ///     .parse_response(&mut response, buf);
+
+    /// assert_eq!(result, Ok(httparse::Status::Complete(buf.len())));
+    /// assert_eq!(response.version.unwrap(), 1);
+    /// assert_eq!(response.code.unwrap(), 200);
+    /// assert_eq!(response.reason.unwrap(), "OK");
+    /// assert_eq!(response.headers.len(), 1);
+    /// assert_eq!(response.headers[0].name, "Space-Before-Header");
+    /// assert_eq!(response.headers[0].value, &b"hello there"[..]);
+    /// ```
+    pub fn allow_space_before_first_header_name(&mut self, value: bool) -> &mut Self {
+        self.allow_space_before_first_header_name = value;
+        self
+    }
+
+    /// Whether white space before first header is allowed or not
+    pub fn space_before_first_header_name_are_allowed(&self) -> bool {
+        self.allow_space_before_first_header_name
     }
 
     /// Parses a request with the given config.
@@ -519,6 +553,7 @@ impl<'h, 'b> Request<'h, 'b> {
             &HeaderParserConfig {
                 allow_spaces_after_header_name: false,
                 allow_obsolete_multiline_headers: false,
+                allow_space_before_first_header_name: config.allow_space_before_first_header_name,
                 ignore_invalid_headers: config.ignore_invalid_headers_in_requests
             },
         ));
@@ -716,6 +751,7 @@ impl<'h, 'b> Response<'h, 'b> {
             &HeaderParserConfig {
                 allow_spaces_after_header_name: config.allow_spaces_after_header_name_in_responses,
                 allow_obsolete_multiline_headers: config.allow_obsolete_multiline_headers_in_responses,
+                allow_space_before_first_header_name: config.allow_space_before_first_header_name,
                 ignore_invalid_headers: config.ignore_invalid_headers_in_responses
             }
         ));
@@ -1001,6 +1037,7 @@ unsafe fn assume_init_slice<T>(s: &mut [MaybeUninit<T>]) -> &mut [T] {
 struct HeaderParserConfig {
     allow_spaces_after_header_name: bool,
     allow_obsolete_multiline_headers: bool,
+    allow_space_before_first_header_name: bool,
     ignore_invalid_headers: bool,
 }
 
@@ -1120,7 +1157,23 @@ fn parse_headers_iter_uninit<'a>(
             break;
         }
         if !is_header_name_token(b) {
-            handle_invalid_char!(bytes, b, HeaderName);
+            if config.allow_space_before_first_header_name
+                && autoshrink.num_headers == 0
+                && (b == b' ' || b == b'\t')
+            {
+                //advance past white space and then try parsing header again
+                while let Some(peek) = bytes.peek() {
+                    if peek == b' ' || peek == b'\t' {
+                        next!(bytes);
+                    } else {
+                        break;
+                    }
+                }
+                bytes.slice();
+                continue 'headers;
+            } else {
+                handle_invalid_char!(bytes, b, HeaderName);
+            }
         }
 
         #[allow(clippy::never_loop)]
@@ -2497,5 +2550,39 @@ mod tests {
         let method = request.method.unwrap();
         assert!(REQUEST.as_ptr() <= method.as_ptr());
         assert!(method.as_ptr() <= buf_end);
+    }
+
+     static RESPONSE_WITH_SPACE_BEFORE_FIRST_HEADER: &[u8] =
+        b"HTTP/1.1 200 OK\r\n Space-Before-Header: hello there\r\n\r\n";
+
+    #[test]
+    fn test_forbid_response_with_space_before_first_header() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut response = Response::new(&mut headers[..]);
+        let result = response.parse(RESPONSE_WITH_SPACE_BEFORE_FIRST_HEADER);
+
+        assert_eq!(result, Err(crate::Error::HeaderName));
+    }
+
+    #[test]
+    fn test_allow_response_response_with_space_before_first_header() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut response = Response::new(&mut headers[..]);
+        let result = crate::ParserConfig::default()
+            .allow_space_before_first_header_name(true)
+            .parse_response(&mut response, RESPONSE_WITH_SPACE_BEFORE_FIRST_HEADER);
+
+        assert_eq!(
+            result,
+            Ok(Status::Complete(
+                RESPONSE_WITH_SPACE_BEFORE_FIRST_HEADER.len()
+            ))
+        );
+        assert_eq!(response.version.unwrap(), 1);
+        assert_eq!(response.code.unwrap(), 200);
+        assert_eq!(response.reason.unwrap(), "OK");
+        assert_eq!(response.headers.len(), 1);
+        assert_eq!(response.headers[0].name, "Space-Before-Header");
+        assert_eq!(response.headers[0].value, &b"hello there"[..]);
     }
 }
