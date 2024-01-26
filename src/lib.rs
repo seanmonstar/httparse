@@ -1208,6 +1208,7 @@ fn parse_headers_iter_uninit<'a>(
 
         let mut b;
 
+        #[allow(clippy::never_loop)]
         let value_slice = 'value: loop {
             // eat white space between colon and value
             'whitespace_after_colon: loop {
