@@ -105,7 +105,7 @@ unsafe fn match_header_value_char_16_sse(buf: &[u8]) -> usize {
 
 #[test]
 fn sse_code_matches_uri_chars_table() {
-    if is_x86_feature_detected!("sse4.2") {
+    if !is_x86_feature_detected!("sse4.2") {
         return;
     }
 
@@ -124,7 +124,7 @@ fn sse_code_matches_uri_chars_table() {
 
 #[test]
 fn sse_code_matches_header_value_chars_table() {
-    if is_x86_feature_detected!("sse4.2") {
+    if !is_x86_feature_detected!("sse4.2") {
         return;
     }
 
