@@ -262,6 +262,7 @@ pub struct ParserConfig {
     allow_space_before_first_header_name: bool,
     ignore_invalid_headers_in_responses: bool,
     ignore_invalid_headers_in_requests: bool,
+    save_partial_header_value: bool,
 }
 
 impl ParserConfig {
@@ -456,6 +457,15 @@ impl ParserConfig {
         self
     }
 
+    /// Sets whether partial header value should be saved.
+    pub fn save_partial_header_value(
+        &mut self,
+        value: bool,
+    ) -> &mut Self {
+        self.save_partial_header_value = value;
+        self
+    }
+
     /// Parses a response with the given config.
     pub fn parse_response<'buf>(
         &self,
@@ -554,6 +564,7 @@ impl<'h, 'b> Request<'h, 'b> {
                 allow_spaces_after_header_name: false,
                 allow_obsolete_multiline_headers: false,
                 allow_space_before_first_header_name: config.allow_space_before_first_header_name,
+                save_partial_header_value: config.save_partial_header_value,
                 ignore_invalid_headers: config.ignore_invalid_headers_in_requests
             },
         ));
@@ -752,6 +763,7 @@ impl<'h, 'b> Response<'h, 'b> {
                 allow_spaces_after_header_name: config.allow_spaces_after_header_name_in_responses,
                 allow_obsolete_multiline_headers: config.allow_obsolete_multiline_headers_in_responses,
                 allow_space_before_first_header_name: config.allow_space_before_first_header_name,
+                save_partial_header_value: config.save_partial_header_value,
                 ignore_invalid_headers: config.ignore_invalid_headers_in_responses
             }
         ));
@@ -1039,6 +1051,7 @@ struct HeaderParserConfig {
     allow_obsolete_multiline_headers: bool,
     allow_space_before_first_header_name: bool,
     ignore_invalid_headers: bool,
+    save_partial_header_value: bool,
 }
 
 /* Function which parsers headers into uninitialized buffer.
@@ -1085,6 +1098,8 @@ fn parse_headers_iter_uninit<'a>(
     let mut result = Err(Error::TooManyHeaders);
 
     let mut iter = autoshrink.headers.iter_mut();
+
+    let mut partial = false;
 
     macro_rules! maybe_continue_after_obsolete_line_folding {
         ($bytes:ident, $label:lifetime) => {
@@ -1240,12 +1255,36 @@ fn parse_headers_iter_uninit<'a>(
                 // parse value till EOL
 
                 simd::match_header_value_vectored(bytes);
-                let b = next!(bytes);
+
+                let b = match config.save_partial_header_value {
+                    true => match bytes.next() {
+                        Some(b) => b,
+                        None => {
+                            partial = true;
+                            break 'value bytes.slice();
+                        }
+                    },
+                    false => next!(bytes),
+                };
 
                 //found_ctl
                 let skip = if b == b'\r' {
-                    expect!(bytes.next() == b'\n' => Err(Error::HeaderValue));
-                    2
+                    match config.save_partial_header_value {
+                        true => match bytes.next() {
+                            Some(b'\n') => 2,
+                            Some(_) => return Err(Error::HeaderValue),
+                            None => {
+                                partial = true;
+                                unsafe {
+                                    break 'value bytes.slice_skip(1);
+                                }
+                            }
+                        },
+                        false => {
+                            expect!(bytes.next() == b'\n' => Err(Error::HeaderValue));
+                            2
+                        }
+                    }
                 } else if b == b'\n' {
                     1
                 } else {
@@ -1284,9 +1323,16 @@ fn parse_headers_iter_uninit<'a>(
             value: header_value,
         });
         autoshrink.num_headers += 1;
+
+        if partial {
+            break;
+        }
     }
 
-    result
+    match partial {
+        true => Ok(Status::Partial),
+        false => result,
+    }
 }
 
 /// Parse a buffer of bytes as a chunk size.
@@ -2097,6 +2143,99 @@ mod tests {
             .allow_multiple_spaces_in_request_line_delimiters(true)
             .parse_request(&mut request, REQUEST_WITH_MULTIPLE_SPACES_AND_BAD_PATH);
         assert_eq!(result, Err(crate::Error::Token));
+    }
+
+    static REQUEST_WITH_PARTIAL_COOKIE: &[u8] =  b"GET / HTTP/1.1\r\nHost: foo.com\r\nCookie: a=b;def=c";
+
+    #[test]
+    fn test_request_with_save_partial_header_value() {
+        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+        let mut req = Request::new(&mut headers[..]);
+        let result =  crate::ParserConfig::default()
+            .save_partial_header_value(true)
+            .parse_request(&mut req, REQUEST_WITH_PARTIAL_COOKIE);
+        assert_eq!(result, Ok(Status::Partial));
+        assert_eq!(req.method.unwrap(), "GET");
+        assert_eq!(req.path.unwrap(), "/");
+        assert_eq!(req.version.unwrap(), 1);
+        assert_eq!(req.headers.len(), NUM_OF_HEADERS);
+        assert_eq!(req.headers[0].name, "Host");
+        assert_eq!(req.headers[0].value, b"foo.com");
+        assert_eq!(req.headers[1].name, "Cookie");
+        assert_eq!(req.headers[1].value, b"a=b;def=c");
+    }
+
+    #[test]
+    fn test_request_not_save_partial_header_value() {
+        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+        let mut req = Request::new(&mut headers[..]);
+        let result =  crate::ParserConfig::default()
+            .parse_request(&mut req, REQUEST_WITH_PARTIAL_COOKIE);
+        assert_eq!(result, Ok(Status::Partial));
+        assert_eq!(req.method.unwrap(), "GET");
+        assert_eq!(req.path.unwrap(), "/");
+        assert_eq!(req.version.unwrap(), 1);
+        assert_eq!(req.headers.len(), NUM_OF_HEADERS);
+        assert_eq!(req.headers[0].name, "Host");
+        assert_eq!(req.headers[0].value, b"foo.com");
+        assert_eq!(req.headers[1].name, "");
+        assert_eq!(req.headers[1].value, b"");
+    }
+
+    #[test]
+    fn test_request_with_save_partial_header_value_without_last_newline() {
+        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+        let mut req = Request::new(&mut headers[..]);
+        let result =  crate::ParserConfig::default()
+            .save_partial_header_value(true)
+            .parse_request(&mut req, b"GET / HTTP/1.1\r\nHost: foo.com\r\nCookie: a=b;def=c\r\n");
+        assert_eq!(result, Ok(Status::Partial));
+        assert_eq!(req.method.unwrap(), "GET");
+        assert_eq!(req.path.unwrap(), "/");
+        assert_eq!(req.version.unwrap(), 1);
+        assert_eq!(req.headers.len(), NUM_OF_HEADERS);
+        assert_eq!(req.headers[0].name, "Host");
+        assert_eq!(req.headers[0].value, b"foo.com");
+        assert_eq!(req.headers[1].name, "Cookie");
+        assert_eq!(req.headers[1].value, b"a=b;def=c");
+        assert_eq!(req.headers[2].name, "");
+        assert_eq!(req.headers[2].value, b"");
+    }
+
+    #[test]
+    fn test_request_with_save_partial_header_value_partial_ctl() {
+        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+        let mut req = Request::new(&mut headers[..]);
+        let result =  crate::ParserConfig::default()
+            .save_partial_header_value(true)
+            .parse_request(&mut req, b"GET / HTTP/1.1\r\nHost: foo.com\r\nCookie: a=b;def=c\r");
+        assert_eq!(result, Ok(Status::Partial));
+        assert_eq!(req.method.unwrap(), "GET");
+        assert_eq!(req.path.unwrap(), "/");
+        assert_eq!(req.version.unwrap(), 1);
+        assert_eq!(req.headers.len(), NUM_OF_HEADERS);
+        assert_eq!(req.headers[0].name, "Host");
+        assert_eq!(req.headers[0].value, b"foo.com");
+        assert_eq!(req.headers[1].name, "Cookie");
+        assert_eq!(req.headers[1].value, b"a=b;def=c");
+    }
+
+    #[test]
+    fn test_request_with_save_partial_header_value_partial_newline() {
+        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+        let mut req = Request::new(&mut headers[..]);
+        let result =  crate::ParserConfig::default()
+            .save_partial_header_value(true)
+            .parse_request(&mut req, b"GET / HTTP/1.1\r\nHost: foo.com\r\nCookie: a=b;def=c\r\n\r");
+        assert_eq!(result, Ok(Status::Partial));
+        assert_eq!(req.method.unwrap(), "GET");
+        assert_eq!(req.path.unwrap(), "/");
+        assert_eq!(req.version.unwrap(), 1);
+        assert_eq!(req.headers.len(), NUM_OF_HEADERS);
+        assert_eq!(req.headers[0].name, "Host");
+        assert_eq!(req.headers[0].value, b"foo.com");
+        assert_eq!(req.headers[1].name, "Cookie");
+        assert_eq!(req.headers[1].value, b"a=b;def=c");
     }
 
     static RESPONSE_WITH_SPACES_IN_CODE: &[u8] = b"HTTP/1.1 99 200 OK\r\n\r\n";
