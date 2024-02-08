@@ -2239,12 +2239,28 @@ mod tests {
     }
 
     #[test]
-    fn test_response_with_save_partial_header_value_partial_ctl() {
+    fn test_response_with_save_partial_header_value() {
         let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
         let mut res = Response::new(&mut headers[..]);
         let result =  crate::ParserConfig::default()
             .save_partial_header_value(true)
             .parse_response(&mut res, b"HTTP/1.1 200 OK\r\nBread: baguette");
+        assert_eq!(result, Ok(Status::Partial));
+        assert_eq!(res.code.unwrap(), 200);
+        assert_eq!(res.reason.unwrap(), "OK");
+        assert_eq!(res.version.unwrap(), 1);
+        assert_eq!(res.headers.len(), NUM_OF_HEADERS);
+        assert_eq!(res.headers[0].name, "Bread");
+        assert_eq!(res.headers[0].value, b"baguette");
+    }
+
+    #[test]
+    fn test_response_with_save_partial_header_value_partial_ctl() {
+        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+        let mut res = Response::new(&mut headers[..]);
+        let result =  crate::ParserConfig::default()
+            .save_partial_header_value(true)
+            .parse_response(&mut res, b"HTTP/1.1 200 OK\r\nBread: baguette\r");
         assert_eq!(result, Ok(Status::Partial));
         assert_eq!(res.code.unwrap(), 200);
         assert_eq!(res.reason.unwrap(), "OK");
