@@ -26,7 +26,7 @@
 //! making it *even* faster.
 
 use core::{fmt, result, str};
-use core::mem::{MaybeUninit};
+use core::mem::MaybeUninit;
 
 use crate::iter::Bytes;
 
