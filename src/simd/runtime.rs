@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicU8, Ordering};
-use crate::iter::Bytes;
+
 use super::avx2;
 use super::sse42;
 
@@ -30,11 +30,11 @@ fn get_runtime_feature() -> u8 {
     feature
 }
 
-pub fn match_header_name_vectored(bytes: &mut Bytes) {
-    super::swar::match_header_name_vectored(bytes);
+pub(crate) fn match_header_name_vectored(bytes: &[u8]) -> usize {
+    super::swar::match_header_name_vectored(bytes)
 }
 
-pub fn match_uri_vectored(bytes: &mut Bytes) {
+pub(crate) fn match_uri_vectored(bytes: &[u8]) -> usize {
     // SAFETY: calls are guarded by a feature check
     unsafe {
         match get_runtime_feature() {
@@ -45,7 +45,7 @@ pub fn match_uri_vectored(bytes: &mut Bytes) {
     }
 }
 
-pub fn match_header_value_vectored(bytes: &mut Bytes) {
+pub(crate) fn match_header_value_vectored(bytes: &[u8]) -> usize {
     // SAFETY: calls are guarded by a feature check
     unsafe {
         match get_runtime_feature() {

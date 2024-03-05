@@ -1,52 +1,60 @@
-use crate::iter::Bytes;
 use core::arch::aarch64::*;
 
 #[inline]
-pub fn match_header_name_vectored(bytes: &mut Bytes) {
-    while bytes.as_ref().len() >= 16 {
-        // SAFETY: ensured that there are at least 16 bytes remaining 
-        unsafe {
-            let advance = match_header_name_char_16_neon(bytes.as_ref().as_ptr());
-            bytes.advance(advance);
+pub(crate) fn match_header_name_vectored(bytes: &[u8]) -> usize {
+    let mut len = 0usize;
+    let mut remaining = bytes;
+    while remaining.len() >= 16 {
+        // SAFETY: ensured that there are at least 16 bytes remaining.
+        let advance = unsafe { match_header_name_char_16_neon(remaining) };
+        len = len.saturating_add(advance);
+        remaining = &bytes[len..];
 
-            if advance != 16 {
-                return;
-            }
+        if advance != 16 {
+            return len;
         }
     }
-    super::swar::match_header_name_vectored(bytes);
+    let advance = super::swar::match_header_name_vectored(remaining);
+    len = len.saturating_add(advance);
+    len
 }
 
 #[inline]
-pub fn match_header_value_vectored(bytes: &mut Bytes) {
-    while bytes.as_ref().len() >= 16 {
-        // SAFETY: ensured that there are at least 16 bytes remaining 
-        unsafe {
-            let advance = match_header_value_char_16_neon(bytes.as_ref().as_ptr());
-            bytes.advance(advance);
+pub(crate) fn match_header_value_vectored(bytes: &[u8]) -> usize {
+    let mut len = 0usize;
+    let mut remaining = bytes;
+    while remaining.len() >= 16 {
+        // SAFETY: ensured that there are at least 16 bytes remaining.
+        let advance = unsafe { match_header_value_char_16_neon(remaining) };
+        len = len.saturating_add(advance);
+        remaining = &bytes[len..];
 
-            if advance != 16 {
-                return;
-            }
+        if advance != 16 {
+            return len;
         }
     }
-    super::swar::match_header_value_vectored(bytes);
+    let advance = super::swar::match_header_value_vectored(remaining);
+    len = len.saturating_add(advance);
+    len
 }
 
 #[inline]
-pub fn match_uri_vectored(bytes: &mut Bytes) {
-    while bytes.as_ref().len() >= 16 {
-        // SAFETY: ensured that there are at least 16 bytes remaining 
-        unsafe {
-            let advance = match_url_char_16_neon(bytes.as_ref().as_ptr());
-            bytes.advance(advance);
+pub(crate) fn match_uri_vectored(bytes: &[u8]) -> usize {
+    let mut len = 0usize;
+    let mut remaining = bytes;
+    while remaining.len() >= 16 {
+        // SAFETY: ensured that there are at least 16 bytes remaining.
+        let advance = unsafe { match_url_char_16_neon(remaining) };
+        len = len.saturating_add(advance);
+        remaining = &bytes[len..];
 
-            if advance != 16 {
-                return;
-            }
+        if advance != 16 {
+            return len;
         }
     }
-    super::swar::match_uri_vectored(bytes);
+    let advance = super::swar::match_uri_vectored(remaining);
+    len = len.saturating_add(advance);
+    len
 }
 
 const fn bit_set(x: u8) -> bool {
@@ -81,7 +89,7 @@ const BITMAPS: ([u8; 16], [u8; 16]) = build_bitmap();
 
 // NOTE: adapted from 256-bit version, with upper 128-bit ops commented out
 #[inline]
-unsafe fn match_header_name_char_16_neon(ptr: *const u8) -> usize {
+unsafe fn match_header_name_char_16_neon(bytes: &[u8]) -> usize {
     let bitmaps = BITMAPS;
     // NOTE: ideally compile-time constants
     let (bitmap_0_7, _bitmap_8_15) = bitmaps;
@@ -94,7 +102,7 @@ unsafe fn match_header_name_char_16_neon(ptr: *const u8) -> usize {
     let bitmask_lookup = vld1q_u8(BITMASK_LOOKUP_DATA.as_ptr());
 
     // Load 16 input bytes.
-    let input = vld1q_u8(ptr);
+    let input = vld1q_u8(bytes.as_ptr());
 
     // Extract indices for row_0_7.
     let indices_0_7 = vandq_u8(input, vdupq_n_u8(0x8F)); // 0b1000_1111;
@@ -122,8 +130,8 @@ unsafe fn match_header_name_char_16_neon(ptr: *const u8) -> usize {
 }
 
 #[inline]
-unsafe fn match_url_char_16_neon(ptr: *const u8) -> usize {
-    let input = vld1q_u8(ptr);
+unsafe fn match_url_char_16_neon(bytes: &[u8]) -> usize {
+    let input = vld1q_u8(bytes.as_ptr());
 
     // Check that b'!' <= input <= b'~'
     let result = vandq_u8(
@@ -141,8 +149,8 @@ unsafe fn match_url_char_16_neon(ptr: *const u8) -> usize {
 }
 
 #[inline]
-unsafe fn match_header_value_char_16_neon(ptr: *const u8) -> usize {
-    let input = vld1q_u8(ptr);
+unsafe fn match_header_value_char_16_neon(bytes: &[u8]) -> usize {
+    let input = vld1q_u8(bytes.as_ptr());
 
     // Check that b' ' <= and b != 127 or b == 9
     let result = vcleq_u8(vdupq_n_u8(b' '), input);
@@ -195,67 +203,56 @@ unsafe fn offsetnz(x: uint8x16_t) -> u32 {
 
 #[test]
 fn neon_code_matches_uri_chars_table() {
-    #[allow(clippy::undocumented_unsafe_blocks)]
-    unsafe {
-        assert!(byte_is_allowed(b'_', match_uri_vectored));
+    assert!(byte_is_allowed(b'_', match_uri_vectored));
 
-        for (b, allowed) in crate::URI_MAP.iter().cloned().enumerate() {
-            assert_eq!(
-                byte_is_allowed(b as u8, match_uri_vectored),
-                allowed,
-                "byte_is_allowed({:?}) should be {:?}",
-                b,
-                allowed,
-            );
-        }
+    for (b, allowed) in crate::URI_MAP.iter().cloned().enumerate() {
+        assert_eq!(
+            byte_is_allowed(b as u8, match_uri_vectored),
+            allowed,
+            "byte_is_allowed({:?}) should be {:?}",
+            b,
+            allowed,
+        );
     }
 }
 
 #[test]
 fn neon_code_matches_header_value_chars_table() {
-    #[allow(clippy::undocumented_unsafe_blocks)]
-    unsafe {
-        assert!(byte_is_allowed(b'_', match_header_value_vectored));
+    assert!(byte_is_allowed(b'_', match_header_value_vectored));
 
-        for (b, allowed) in crate::HEADER_VALUE_MAP.iter().cloned().enumerate() {
-            assert_eq!(
-                byte_is_allowed(b as u8, match_header_value_vectored),
-                allowed,
-                "byte_is_allowed({:?}) should be {:?}",
-                b,
-                allowed,
-            );
-        }
+    for (b, allowed) in crate::HEADER_VALUE_MAP.iter().cloned().enumerate() {
+        assert_eq!(
+            byte_is_allowed(b as u8, match_header_value_vectored),
+            allowed,
+            "byte_is_allowed({:?}) should be {:?}",
+            b,
+            allowed,
+        );
     }
 }
 
 #[test]
 fn neon_code_matches_header_name_chars_table() {
-    #[allow(clippy::undocumented_unsafe_blocks)]
-    unsafe {
-        assert!(byte_is_allowed(b'_', match_header_name_vectored));
+    assert!(byte_is_allowed(b'_', match_header_name_vectored));
 
-        for (b, allowed) in crate::HEADER_NAME_MAP.iter().cloned().enumerate() {
-            assert_eq!(
-                byte_is_allowed(b as u8, match_header_name_vectored),
-                allowed,
-                "byte_is_allowed({:?}) should be {:?}",
-                b,
-                allowed,
-            );
-        }
+    for (b, allowed) in crate::HEADER_NAME_MAP.iter().cloned().enumerate() {
+        assert_eq!(
+            byte_is_allowed(b as u8, match_header_name_vectored),
+            allowed,
+            "byte_is_allowed({:?}) should be {:?}",
+            b,
+            allowed,
+        );
     }
 }
 
 #[cfg(test)]
-unsafe fn byte_is_allowed(byte: u8, f: unsafe fn(bytes: &mut Bytes<'_>)) -> bool {
+fn byte_is_allowed(byte: u8, f: fn(bytes: &[u8]) -> usize) -> bool {
     let mut slice = [b'_'; 16];
     slice[10] = byte;
-    let mut bytes = Bytes::new(&slice);
 
-    f(&mut bytes);
-
-    match bytes.pos() {
+    let pos = f(&slice);
+    match pos {
         16 => true,
         10 => false,
         x => panic!("unexpected pos: {}", x),
