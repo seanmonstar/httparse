@@ -257,6 +257,7 @@ impl<T> Status<T> {
 pub struct ParserConfig {
     allow_spaces_after_header_name_in_requests: bool,
     allow_spaces_after_header_name_in_responses: bool,
+    allow_obsolete_multiline_headers_in_requests: bool,
     allow_obsolete_multiline_headers_in_responses: bool,
     allow_multiple_spaces_in_request_line_delimiters: bool,
     allow_multiple_spaces_in_response_status_delimiters: bool,
@@ -341,7 +342,43 @@ impl ParserConfig {
         self.allow_multiple_spaces_in_response_status_delimiters
     }
 
-    /// Sets whether obsolete multiline headers should be allowed.
+    /// Sets whether obsolete multiline headers should be allowed in requests.
+    ///
+    /// This is an obsolete part of HTTP/1. Use at your own risk. If you are
+    /// building an HTTP library, the newlines (`\r` and `\n`) should be
+    /// replaced by spaces before handing the header value to the user.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// let buf = b"POST / HTTP/1.1\r\nFolded-Header: hello\r\n there \r\n\r\n";
+    /// let mut headers = [httparse::EMPTY_HEADER; 16];
+    /// let mut request = httparse::Request::new(&mut headers);
+    ///
+    /// let req = httparse::ParserConfig::default()
+    ///     .allow_obsolete_multiline_headers_in_requests(true)
+    ///     .parse_request(&mut request, buf);
+    ///
+    /// assert_eq!(req, Ok(httparse::Status::Complete(buf.len())));
+    ///
+    /// assert_eq!(request.headers.len(), 1);
+    /// assert_eq!(request.headers[0].name, "Folded-Header");
+    /// assert_eq!(request.headers[0].value, b"hello\r\n there");
+    /// ```
+    pub fn allow_obsolete_multiline_headers_in_requests(
+        &mut self,
+        value: bool,
+    ) -> &mut Self {
+        self.allow_obsolete_multiline_headers_in_requests = value;
+        self
+    }
+
+    /// Whether obsolete multiline headers should be allowed in requests.
+    pub fn obsolete_multiline_headers_in_requests_are_allowed(&self) -> bool {
+        self.allow_obsolete_multiline_headers_in_requests
+    }
+
+    /// Sets whether obsolete multiline headers should be allowed in responses.
     ///
     /// This is an obsolete part of HTTP/1. Use at your own risk. If you are
     /// building an HTTP library, the newlines (`\r` and `\n`) should be
@@ -582,7 +619,7 @@ impl<'h, 'b> Request<'h, 'b> {
             &mut bytes,
             &HeaderParserConfig {
                 allow_spaces_after_header_name: config.allow_spaces_after_header_name_in_requests,
-                allow_obsolete_multiline_headers: false,
+                allow_obsolete_multiline_headers: config.allow_obsolete_multiline_headers_in_requests,
                 allow_space_before_first_header_name: config.allow_space_before_first_header_name,
                 ignore_invalid_headers: config.ignore_invalid_headers_in_requests
             },
