@@ -267,6 +267,16 @@ pub struct ParserConfig {
 }
 
 impl ParserConfig {
+    /// Sets whether spaces and tabs should be allowed after header names in requests and
+    /// responses.
+    pub fn allow_spaces_after_header_name(
+        &mut self,
+        value: bool,
+    ) -> &mut Self {
+        self.allow_spaces_after_header_name_in_requests(value)
+            .allow_spaces_after_header_name_in_responses(value)
+    }
+
     /// Sets whether spaces and tabs should be allowed after header names in requests.
     pub fn allow_spaces_after_header_name_in_requests(
         &mut self,
@@ -293,6 +303,25 @@ impl ParserConfig {
     /// Whether spaces and tabs should be allowed after header names in responses.
     pub fn spaces_after_header_name_in_responses_are_allowed(&self) -> bool {
         self.allow_spaces_after_header_name_in_responses
+    }
+
+    /// Sets whether multiple spaces are allowed as delimiters in start lines (request lines and
+    /// response status lines).
+    ///
+    /// # Background
+    ///
+    /// The [latest version of the HTTP/1.1 spec][spec] allows implementations to parse multiple
+    /// whitespace characters in place of the `SP` delimiters in the start line, including:
+    ///
+    /// > SP, HTAB, VT (%x0B), FF (%x0C), or bare CR
+    ///
+    /// This option relaxes the parser to allow for multiple spaces, but does *not* allow the
+    /// start line to contain the other mentioned whitespace characters.
+    ///
+    /// [spec]: https://httpwg.org/http-core/draft-ietf-httpbis-messaging-latest.html#rfc.section.3.p.3
+    pub fn allow_multiple_spaces_in_start_line_delimiters(&mut self, value: bool) -> &mut Self {
+        self.allow_multiple_spaces_in_request_line_delimiters(value)
+            .allow_multiple_spaces_in_response_status_delimiters(value)
     }
 
     /// Sets whether multiple spaces are allowed as delimiters in request lines.
@@ -340,6 +369,37 @@ impl ParserConfig {
     /// Whether multiple spaces are allowed as delimiters in response status lines.
     pub fn multiple_spaces_in_response_status_delimiters_are_allowed(&self) -> bool {
         self.allow_multiple_spaces_in_response_status_delimiters
+    }
+
+    /// Sets whether obsolete multiline headers should be allowed in requests and responses.
+    ///
+    /// This is an obsolete part of HTTP/1. Use at your own risk. If you are
+    /// building an HTTP library, the newlines (`\r` and `\n`) should be
+    /// replaced by spaces before handing the header value to the user.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// let buf = b"POST / HTTP/1.1\r\nFolded-Header: hello\r\n there \r\n\r\n";
+    /// let mut headers = [httparse::EMPTY_HEADER; 16];
+    /// let mut request = httparse::Request::new(&mut headers);
+    ///
+    /// let req = httparse::ParserConfig::default()
+    ///     .allow_obsolete_multiline_headers(true)
+    ///     .parse_request(&mut request, buf);
+    ///
+    /// assert_eq!(req, Ok(httparse::Status::Complete(buf.len())));
+    ///
+    /// assert_eq!(request.headers.len(), 1);
+    /// assert_eq!(request.headers[0].name, "Folded-Header");
+    /// assert_eq!(request.headers[0].value, b"hello\r\n there");
+    /// ```
+    pub fn allow_obsolete_multiline_headers(
+        &mut self,
+        value: bool,
+    ) -> &mut Self {
+        self.allow_obsolete_multiline_headers_in_requests(value)
+            .allow_obsolete_multiline_headers_in_responses(value)
     }
 
     /// Sets whether obsolete multiline headers should be allowed in requests.
@@ -466,6 +526,48 @@ impl ParserConfig {
         request.parse_with_config_and_uninit_headers(buf, self, headers)
     }
 
+    /// Sets whether invalid header lines should be silently ignored in requests and responses.
+    ///
+    /// This mimicks the behaviour of major browsers. You probably don't want this.
+    /// You should only want this if you are implementing a proxy whose main
+    /// purpose is to sit in front of browsers whose users access arbitrary content
+    /// which may be malformed, and they expect everything that works without
+    /// the proxy to keep working with the proxy.
+    ///
+    /// This option will prevent `ParserConfig::parse_request` and `ParserConfig::parse_response`
+    /// from returning an error encountered when parsing a header, except if the error was caused
+    /// by the character NUL (ASCII code 0), as Chrome specifically always reject
+    /// those, or if the error was caused by a lone character `\r`, as Firefox and
+    /// Chrome behave differently in that case.
+    ///
+    /// The ignorable errors are:
+    /// * empty header names;
+    /// * characters that are not allowed in header names, except for `\0` and `\r`;
+    /// * when `allow_spaces_after_header_name_in_requests` is not enabled,
+    ///   spaces and tabs between the header name and the colon in requests;
+    /// * when `allow_spaces_after_header_name_in_responses` is not enabled,
+    ///   spaces and tabs between the header name and the colon in responses;
+    /// * missing colon between header name and value;
+    /// * when `allow_obsolete_multiline_headers_in_requests` is not enabled,
+    ///   headers using obsolete line folding in requests.
+    /// * when `allow_obsolete_multiline_headers_in_responses` is not enabled,
+    ///   headers using obsolete line folding in responses.
+    /// * characters that are not allowed in header values except for `\0` and `\r`.
+    ///
+    /// If an ignorable error is encountered, the parser tries to find the next
+    /// line in the input to resume parsing the rest of the headers. As lines
+    /// contributing to a header using obsolete line folding always start
+    /// with whitespace, those will be ignored too. An error will be emitted
+    /// nonetheless if it finds `\0` or a lone `\r` while looking for the
+    /// next line.
+    pub fn ignore_invalid_headers(
+        &mut self,
+        value: bool,
+    ) -> &mut Self {
+        self.ignore_invalid_headers_in_requests(value)
+            .ignore_invalid_headers_in_responses(value)
+    }
+
     /// Sets whether invalid header lines should be silently ignored in responses.
     ///
     /// This mimicks the behaviour of major browsers. You probably don't want this.
@@ -510,6 +612,31 @@ impl ParserConfig {
     }
 
     /// Sets whether invalid header lines should be silently ignored in requests.
+    ///
+    /// You probably don't want this.
+    ///
+    /// This option will prevent `ParserConfig::parse_request` from returning
+    /// an error encountered when parsing a header, except if the error was caused
+    /// by the character NUL (ASCII code 0), as Chrome specifically always reject
+    /// those, or if the error was caused by a lone character `\r`, as Firefox and
+    /// Chrome behave differently in that case.
+    ///
+    /// The ignorable errors are:
+    /// * empty header names;
+    /// * characters that are not allowed in header names, except for `\0` and `\r`;
+    /// * when `allow_spaces_after_header_name_in_requests` is not enabled,
+    ///   spaces and tabs between the header name and the colon;
+    /// * missing colon between header name and value;
+    /// * when `allow_obsolete_multiline_headers_in_requests` is not enabled,
+    ///   headers using obsolete line folding.
+    /// * characters that are not allowed in header values except for `\0` and `\r`.
+    ///
+    /// If an ignorable error is encountered, the parser tries to find the next
+    /// line in the input to resume parsing the rest of the headers. As lines
+    /// contributing to a header using obsolete line folding always start
+    /// with whitespace, those will be ignored too. An error will be emitted
+    /// nonetheless if it finds `\0` or a lone `\r` while looking for the
+    /// next line.
     pub fn ignore_invalid_headers_in_requests(
         &mut self,
         value: bool,
