@@ -255,6 +255,7 @@ impl<T> Status<T> {
 /// Parser configuration.
 #[derive(Clone, Debug, Default)]
 pub struct ParserConfig {
+    allow_spaces_after_header_name_in_requests: bool,
     allow_spaces_after_header_name_in_responses: bool,
     allow_obsolete_multiline_headers_in_responses: bool,
     allow_multiple_spaces_in_request_line_delimiters: bool,
@@ -265,6 +266,20 @@ pub struct ParserConfig {
 }
 
 impl ParserConfig {
+    /// Sets whether spaces and tabs should be allowed after header names in requests.
+    pub fn allow_spaces_after_header_name_in_requests(
+        &mut self,
+        value: bool,
+    ) -> &mut Self {
+        self.allow_spaces_after_header_name_in_requests = value;
+        self
+    }
+
+    /// Whether spaces and tabs should be allowed after header names in requests.
+    pub fn spaces_after_header_name_in_requests_are_allowed(&self) -> bool {
+        self.allow_spaces_after_header_name_in_requests
+    }
+
     /// Sets whether spaces and tabs should be allowed after header names in responses.
     pub fn allow_spaces_after_header_name_in_responses(
         &mut self,
@@ -566,7 +581,7 @@ impl<'h, 'b> Request<'h, 'b> {
             &mut headers,
             &mut bytes,
             &HeaderParserConfig {
-                allow_spaces_after_header_name: false,
+                allow_spaces_after_header_name: config.allow_spaces_after_header_name_in_requests,
                 allow_obsolete_multiline_headers: false,
                 allow_space_before_first_header_name: config.allow_space_before_first_header_name,
                 ignore_invalid_headers: config.ignore_invalid_headers_in_requests
