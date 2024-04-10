@@ -274,6 +274,11 @@ impl ParserConfig {
         self
     }
 
+    /// Whether spaces and tabs should be allowed after header names in responses.
+    pub fn spaces_after_header_name_in_responses_are_allowed(&self) -> bool {
+        self.allow_spaces_after_header_name_in_responses
+    }
+
     /// Sets whether multiple spaces are allowed as delimiters in request lines.
     ///
     /// # Background
@@ -352,12 +357,12 @@ impl ParserConfig {
         self
     }
 
-    /// Whether obsolete multiline headers should be allowed.
+    /// Whether obsolete multiline headers should be allowed in responses.
     pub fn obsolete_multiline_headers_in_responses_are_allowed(&self) -> bool {
         self.allow_obsolete_multiline_headers_in_responses
     }
 
-    /// Sets whether white space before the first header is allowed
+    /// Sets whether white space before the first header is allowed.
     ///
     /// This is not allowed by spec but some browsers ignore it. So this an option for
     /// compatibility.
@@ -447,6 +452,11 @@ impl ParserConfig {
         self
     }
 
+    /// Whether invalid header lines should be silently ignored in responses.
+    pub fn invalid_headers_in_responses_are_ignored(&self) -> bool {
+        self.ignore_invalid_headers_in_responses
+    }
+
     /// Sets whether invalid header lines should be silently ignored in requests.
     pub fn ignore_invalid_headers_in_requests(
         &mut self,
@@ -454,6 +464,11 @@ impl ParserConfig {
     ) -> &mut Self {
         self.ignore_invalid_headers_in_requests = value;
         self
+    }
+
+    /// Whether invalid header lines should be silently ignored in requests.
+    pub fn invalid_headers_in_requests_are_ignored(&self) -> bool {
+        self.ignore_invalid_headers_in_requests
     }
 
     /// Parses a response with the given config.
