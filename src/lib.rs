@@ -255,56 +255,18 @@ impl<T> Status<T> {
 /// Parser configuration.
 #[derive(Clone, Debug, Default)]
 pub struct ParserConfig {
+    allow_multiple_spaces_in_request_line_delimiters: bool,
+    allow_multiple_spaces_in_response_status_delimiters: bool,
     allow_spaces_after_header_name_in_requests: bool,
     allow_spaces_after_header_name_in_responses: bool,
     allow_obsolete_multiline_headers_in_requests: bool,
     allow_obsolete_multiline_headers_in_responses: bool,
-    allow_multiple_spaces_in_request_line_delimiters: bool,
-    allow_multiple_spaces_in_response_status_delimiters: bool,
     allow_space_before_first_header_name: bool,
     ignore_invalid_headers_in_responses: bool,
     ignore_invalid_headers_in_requests: bool,
 }
 
 impl ParserConfig {
-    /// Sets whether spaces and tabs should be allowed after header names in requests and
-    /// responses.
-    pub fn allow_spaces_after_header_name(
-        &mut self,
-        value: bool,
-    ) -> &mut Self {
-        self.allow_spaces_after_header_name_in_requests(value)
-            .allow_spaces_after_header_name_in_responses(value)
-    }
-
-    /// Sets whether spaces and tabs should be allowed after header names in requests.
-    pub fn allow_spaces_after_header_name_in_requests(
-        &mut self,
-        value: bool,
-    ) -> &mut Self {
-        self.allow_spaces_after_header_name_in_requests = value;
-        self
-    }
-
-    /// Whether spaces and tabs should be allowed after header names in requests.
-    pub fn spaces_after_header_name_in_requests_are_allowed(&self) -> bool {
-        self.allow_spaces_after_header_name_in_requests
-    }
-
-    /// Sets whether spaces and tabs should be allowed after header names in responses.
-    pub fn allow_spaces_after_header_name_in_responses(
-        &mut self,
-        value: bool,
-    ) -> &mut Self {
-        self.allow_spaces_after_header_name_in_responses = value;
-        self
-    }
-
-    /// Whether spaces and tabs should be allowed after header names in responses.
-    pub fn spaces_after_header_name_in_responses_are_allowed(&self) -> bool {
-        self.allow_spaces_after_header_name_in_responses
-    }
-
     /// Sets whether multiple spaces are allowed as delimiters in start lines (request lines and
     /// response status lines).
     ///
@@ -369,6 +331,44 @@ impl ParserConfig {
     /// Whether multiple spaces are allowed as delimiters in response status lines.
     pub fn multiple_spaces_in_response_status_delimiters_are_allowed(&self) -> bool {
         self.allow_multiple_spaces_in_response_status_delimiters
+    }
+
+    /// Sets whether spaces and tabs should be allowed after header names in requests and
+    /// responses.
+    pub fn allow_spaces_after_header_name(
+        &mut self,
+        value: bool,
+    ) -> &mut Self {
+        self.allow_spaces_after_header_name_in_requests(value)
+            .allow_spaces_after_header_name_in_responses(value)
+    }
+
+    /// Sets whether spaces and tabs should be allowed after header names in requests.
+    pub fn allow_spaces_after_header_name_in_requests(
+        &mut self,
+        value: bool,
+    ) -> &mut Self {
+        self.allow_spaces_after_header_name_in_requests = value;
+        self
+    }
+
+    /// Whether spaces and tabs should be allowed after header names in requests.
+    pub fn spaces_after_header_name_in_requests_are_allowed(&self) -> bool {
+        self.allow_spaces_after_header_name_in_requests
+    }
+
+    /// Sets whether spaces and tabs should be allowed after header names in responses.
+    pub fn allow_spaces_after_header_name_in_responses(
+        &mut self,
+        value: bool,
+    ) -> &mut Self {
+        self.allow_spaces_after_header_name_in_responses = value;
+        self
+    }
+
+    /// Whether spaces and tabs should be allowed after header names in responses.
+    pub fn spaces_after_header_name_in_responses_are_allowed(&self) -> bool {
+        self.allow_spaces_after_header_name_in_responses
     }
 
     /// Sets whether obsolete multiline headers should be allowed in requests and responses.
@@ -507,25 +507,6 @@ impl ParserConfig {
         self.allow_space_before_first_header_name
     }
 
-    /// Parses a request with the given config.
-    pub fn parse_request<'buf>(
-        &self,
-        request: &mut Request<'_, 'buf>,
-        buf: &'buf [u8],
-    ) -> Result<usize> {
-        request.parse_with_config(buf, self)
-    }
-
-    /// Parses a request with the given config and buffer for headers
-    pub fn parse_request_with_uninit_headers<'headers, 'buf>(
-        &self,
-        request: &mut Request<'headers, 'buf>,
-        buf: &'buf [u8],
-        headers: &'headers mut [MaybeUninit<Header<'buf>>],
-    ) -> Result<usize> {
-        request.parse_with_config_and_uninit_headers(buf, self, headers)
-    }
-
     /// Sets whether invalid header lines should be silently ignored in requests and responses.
     ///
     /// This mimicks the behaviour of major browsers. You probably don't want this.
@@ -648,6 +629,25 @@ impl ParserConfig {
     /// Whether invalid header lines should be silently ignored in requests.
     pub fn invalid_headers_in_requests_are_ignored(&self) -> bool {
         self.ignore_invalid_headers_in_requests
+    }
+
+    /// Parses a request with the given config.
+    pub fn parse_request<'buf>(
+        &self,
+        request: &mut Request<'_, 'buf>,
+        buf: &'buf [u8],
+    ) -> Result<usize> {
+        request.parse_with_config(buf, self)
+    }
+
+    /// Parses a request with the given config and buffer for headers
+    pub fn parse_request_with_uninit_headers<'headers, 'buf>(
+        &self,
+        request: &mut Request<'headers, 'buf>,
+        buf: &'buf [u8],
+        headers: &'headers mut [MaybeUninit<Header<'buf>>],
+    ) -> Result<usize> {
+        request.parse_with_config_and_uninit_headers(buf, self, headers)
     }
 
     /// Parses a response with the given config.
