@@ -2040,6 +2040,23 @@ mod tests {
     }
 
     #[test]
+    fn test_allow_request_with_whitespace_between_header_name_and_colon() {
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut request = Request::new(&mut headers[..]);
+        let result = crate::ParserConfig::default()
+            .allow_spaces_after_header_name_in_requests(true)
+            .parse_request(&mut request, REQUEST_WITH_WHITESPACE_BETWEEN_HEADER_NAME_AND_COLON);
+
+        assert_eq!(result, Ok(Status::Complete(36)));
+        assert_eq!(request.method.unwrap(), "GET");
+        assert_eq!(request.path.unwrap(), "/");
+        assert_eq!(request.version.unwrap(), 1);
+        assert_eq!(request.headers.len(), 1);
+        assert_eq!(request.headers[0].name, "Host");
+        assert_eq!(request.headers[0].value, &b"localhost"[..]);
+    }
+
+    #[test]
     fn test_ignore_header_line_with_whitespaces_after_header_name_in_request() {
         let mut headers = [EMPTY_HEADER; 2];
         let mut request = Request::new(&mut headers[..]);
@@ -2164,6 +2181,122 @@ mod tests {
         assert_eq!(response.headers.len(), 1);
         assert_eq!(response.headers[0].name, "Line-Folded-Header");
         assert_eq!(response.headers[0].value, &b""[..]);
+    }
+
+    static REQUEST_WITH_OBSOLETE_LINE_FOLDING_AT_START: &[u8] =
+        b"GET / HTTP/1.1\r\nLine-Folded-Header: \r\n   \r\n hello there\r\n\r\n";
+
+    #[test]
+    fn test_forbid_request_with_obsolete_line_folding_at_start() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut request = Request::new(&mut headers[..]);
+        let result = request.parse(REQUEST_WITH_OBSOLETE_LINE_FOLDING_AT_START);
+
+        assert_eq!(result, Err(crate::Error::HeaderName));
+    }
+
+    #[test]
+    fn test_allow_request_with_obsolete_line_folding_at_start() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut request = Request::new(&mut headers[..]);
+        let result = crate::ParserConfig::default()
+            .allow_obsolete_multiline_headers_in_requests(true)
+            .parse_request(&mut request, REQUEST_WITH_OBSOLETE_LINE_FOLDING_AT_START);
+
+        assert_eq!(result, Ok(Status::Complete(REQUEST_WITH_OBSOLETE_LINE_FOLDING_AT_START.len())));
+        assert_eq!(request.method.unwrap(), "GET");
+        assert_eq!(request.path.unwrap(), "/");
+        assert_eq!(request.version.unwrap(), 1);
+        assert_eq!(request.headers.len(), 1);
+        assert_eq!(request.headers[0].name, "Line-Folded-Header");
+        assert_eq!(request.headers[0].value, &b"hello there"[..]);
+    }
+
+    static REQUEST_WITH_OBSOLETE_LINE_FOLDING_AT_END: &[u8] =
+        b"GET / HTTP/1.1\r\nLine-Folded-Header: hello there\r\n   \r\n \r\n\r\n";
+
+    #[test]
+    fn test_forbid_request_with_obsolete_line_folding_at_end() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut request = Request::new(&mut headers[..]);
+        let result = request.parse(REQUEST_WITH_OBSOLETE_LINE_FOLDING_AT_END);
+
+        assert_eq!(result, Err(crate::Error::HeaderName));
+    }
+
+    #[test]
+    fn test_allow_request_with_obsolete_line_folding_at_end() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut request = Request::new(&mut headers[..]);
+        let result = crate::ParserConfig::default()
+            .allow_obsolete_multiline_headers_in_requests(true)
+            .parse_request(&mut request, REQUEST_WITH_OBSOLETE_LINE_FOLDING_AT_END);
+
+        assert_eq!(result, Ok(Status::Complete(REQUEST_WITH_OBSOLETE_LINE_FOLDING_AT_END.len())));
+        assert_eq!(request.method.unwrap(), "GET");
+        assert_eq!(request.path.unwrap(), "/");
+        assert_eq!(request.version.unwrap(), 1);
+        assert_eq!(request.headers.len(), 1);
+        assert_eq!(request.headers[0].name, "Line-Folded-Header");
+        assert_eq!(request.headers[0].value, &b"hello there"[..]);
+    }
+
+    static REQUEST_WITH_OBSOLETE_LINE_FOLDING_IN_MIDDLE: &[u8] =
+        b"GET / HTTP/1.1\r\nLine-Folded-Header: hello  \r\n \r\n there\r\n\r\n";
+
+    #[test]
+    fn test_forbid_request_with_obsolete_line_folding_in_middle() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut request = Request::new(&mut headers[..]);
+        let result = request.parse(REQUEST_WITH_OBSOLETE_LINE_FOLDING_IN_MIDDLE);
+
+        assert_eq!(result, Err(crate::Error::HeaderName));
+    }
+
+    #[test]
+    fn test_allow_request_with_obsolete_line_folding_in_middle() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut request = Request::new(&mut headers[..]);
+        let result = crate::ParserConfig::default()
+            .allow_obsolete_multiline_headers_in_requests(true)
+            .parse_request(&mut request, REQUEST_WITH_OBSOLETE_LINE_FOLDING_IN_MIDDLE);
+
+        assert_eq!(result, Ok(Status::Complete(REQUEST_WITH_OBSOLETE_LINE_FOLDING_IN_MIDDLE.len())));
+        assert_eq!(request.method.unwrap(), "GET");
+        assert_eq!(request.path.unwrap(), "/");
+        assert_eq!(request.version.unwrap(), 1);
+        assert_eq!(request.headers.len(), 1);
+        assert_eq!(request.headers[0].name, "Line-Folded-Header");
+        assert_eq!(request.headers[0].value, &b"hello  \r\n \r\n there"[..]);
+    }
+
+    static REQUEST_WITH_OBSOLETE_LINE_FOLDING_IN_EMPTY_HEADER: &[u8] =
+        b"GET / HTTP/1.1\r\nLine-Folded-Header:   \r\n \r\n \r\n\r\n";
+
+    #[test]
+    fn test_forbid_request_with_obsolete_line_folding_in_empty_header() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut request = Request::new(&mut headers[..]);
+        let result = request.parse(REQUEST_WITH_OBSOLETE_LINE_FOLDING_IN_EMPTY_HEADER);
+
+        assert_eq!(result, Err(crate::Error::HeaderName));
+    }
+
+    #[test]
+    fn test_allow_request_with_obsolete_line_folding_in_empty_header() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut request = Request::new(&mut headers[..]);
+        let result = crate::ParserConfig::default()
+            .allow_obsolete_multiline_headers_in_requests(true)
+            .parse_request(&mut request, REQUEST_WITH_OBSOLETE_LINE_FOLDING_IN_EMPTY_HEADER);
+
+        assert_eq!(result, Ok(Status::Complete(REQUEST_WITH_OBSOLETE_LINE_FOLDING_IN_EMPTY_HEADER.len())));
+        assert_eq!(request.method.unwrap(), "GET");
+        assert_eq!(request.path.unwrap(), "/");
+        assert_eq!(request.version.unwrap(), 1);
+        assert_eq!(request.headers.len(), 1);
+        assert_eq!(request.headers[0].name, "Line-Folded-Header");
+        assert_eq!(request.headers[0].value, &b""[..]);
     }
 
     #[test]
