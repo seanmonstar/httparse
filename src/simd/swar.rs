@@ -190,9 +190,13 @@ fn test_is_header_value_block() {
         assert!(!is_header_value_block([b; BLOCK_SIZE]), "b={}", b);
     }
 
-    // A few sanity checks on non-uniform bytes for safe-measure
-    assert!(!is_header_value_block(*b"foo.com\n"));
-    assert!(!is_header_value_block(*b"o.com\r\nU"));
+
+    #[cfg(target_pointer_width = "64")]
+    {
+        // A few sanity checks on non-uniform bytes for safe-measure
+        assert!(!is_header_value_block(*b"foo.com\n"));
+        assert!(!is_header_value_block(*b"o.com\r\nU"));
+    }
 }
 
 #[test]
