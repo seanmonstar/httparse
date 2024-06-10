@@ -123,15 +123,23 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: 1.36.0
+          toolchain: stable
           override: true
           target: i686-unknown-linux-musl
 
-      # Only build, dev-dependencies don't compile on 1.36.0
-      - name: Build
+      - name: Test without SIMD
         uses: actions-rs/cargo@v1
         with:
-          command: build
+          command: test
+          args: --target i686-unknown-linux-musl
+        env:
+          CARGO_CFG_HTTPARSE_DISABLE_SIMD_COMPILETIME: 1
+
+      - name: Test
+
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
           args: --target i686-unknown-linux-musl
 
   msrv_x64:
