@@ -1,10 +1,4 @@
-#[cfg(target_arch = "x86")]
-pub(crate) unsafe fn match_uri_vectored(_: &[u8]) -> usize {
-    unreachable!("AVX2 detection should be disabled for x86");
-}
-
 #[inline]
-#[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2", enable = "sse4.2")]
 pub(crate) unsafe fn match_uri_vectored(bytes: &[u8]) -> usize {
     let mut len = 0usize;
@@ -26,6 +20,7 @@ pub(crate) unsafe fn match_uri_vectored(bytes: &[u8]) -> usize {
 
 #[inline(always)]
 #[allow(non_snake_case, overflowing_literals)]
+#[allow(unused)]
 unsafe fn match_url_char_32_avx(buf: &[u8]) -> usize {
     debug_assert!(buf.len() >= 32);
 
@@ -64,12 +59,6 @@ unsafe fn match_url_char_32_avx(buf: &[u8]) -> usize {
     r.trailing_zeros() as usize
 }
 
-#[cfg(target_arch = "x86")]
-pub(crate) unsafe fn match_header_value_vectored(_: &[u8]) -> usize {
-    unreachable!("AVX2 detection should be disabled for x86");
-}
-
-#[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2", enable = "sse4.2")]
 pub(crate) unsafe fn match_header_value_vectored(bytes: &[u8]) -> usize {
     let mut len = 0usize;
@@ -91,6 +80,7 @@ pub(crate) unsafe fn match_header_value_vectored(bytes: &[u8]) -> usize {
 
 #[inline(always)]
 #[allow(non_snake_case)]
+#[allow(unused)]
 unsafe fn match_header_value_char_32_avx(buf: &[u8]) -> usize {
     debug_assert!(buf.len() >= 32);
 
