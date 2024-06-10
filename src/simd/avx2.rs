@@ -29,11 +29,9 @@ pub(crate) unsafe fn match_uri_vectored(bytes: &[u8]) -> usize {
 unsafe fn match_url_char_32_avx(buf: &[u8]) -> usize {
     debug_assert!(buf.len() >= 32);
 
-    /*
     #[cfg(target_arch = "x86")]
     use core::arch::x86::*;
     #[cfg(target_arch = "x86_64")]
-    */
     use core::arch::x86_64::*;
 
     let ptr = buf.as_ptr();
@@ -96,11 +94,9 @@ pub(crate) unsafe fn match_header_value_vectored(bytes: &[u8]) -> usize {
 unsafe fn match_header_value_char_32_avx(buf: &[u8]) -> usize {
     debug_assert!(buf.len() >= 32);
 
-    /*
     #[cfg(target_arch = "x86")]
     use core::arch::x86::*;
     #[cfg(target_arch = "x86_64")]
-    */
     use core::arch::x86_64::*;
 
     let ptr = buf.as_ptr();
