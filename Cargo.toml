@@ -30,3 +30,11 @@ harness = false
 lto = true
 codegen-units = 1
 opt-level = 3
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(httparse_simd)',
+    'cfg(httparse_simd_target_feature_avx2)',
+    'cfg(httparse_simd_target_feature_sse42)',
+    'cfg(httparse_simd_neon_intrinsics)',
+] }
