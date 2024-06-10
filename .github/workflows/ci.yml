@@ -15,6 +15,7 @@ jobs:
     needs:
       - test
       - simd
+      - check_x86
       - msrv_x64
       - msrv_aarch64
       - miri
@@ -110,6 +111,28 @@ jobs:
         env:
           RUSTFLAGS: -C target_feature=${{ matrix.target_feature }}
           CARGO_CFG_HTTPARSE_DISABLE_SIMD_COMPILETIME: ${{ matrix.disable_compiletime }}
+
+  check_x86:
+    name: check x86
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: 1.36.0
+          override: true
+          target: i686-unknown-linux-musl
+
+      # Only build, dev-dependencies don't compile on 1.36.0
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --target i686-unknown-linux-musl
 
   msrv_x64:
     name: msrv (x64)
