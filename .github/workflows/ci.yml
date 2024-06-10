@@ -183,7 +183,7 @@ jobs:
           override: true
 
       - name: Test
-        run: MIRIFLAGS="-Zmiri-tag-raw-pointers -Zmiri-check-number-validity" cargo miri test
+        run: cargo miri test
   #
   # mirai:
   #   name: MIRAI static analysis
