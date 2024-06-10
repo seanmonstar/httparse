@@ -161,6 +161,8 @@ pub enum Error {
     TooManyHeaders,
     /// Invalid byte in HTTP version.
     Version,
+    /// Unparsed headers are larger than the configured max size.
+    HeadersTooLarge,
 }
 
 impl Error {
@@ -174,6 +176,7 @@ impl Error {
             Error::Token => "invalid token",
             Error::TooManyHeaders => "too many headers",
             Error::Version => "invalid HTTP version",
+            Error::HeadersTooLarge => "headers too large",
         }
     }
 }
@@ -262,6 +265,7 @@ pub struct ParserConfig {
     allow_space_before_first_header_name: bool,
     ignore_invalid_headers_in_responses: bool,
     ignore_invalid_headers_in_requests: bool,
+    max_header_list_size: Option<usize>,
 }
 
 impl ParserConfig {
@@ -474,6 +478,18 @@ impl ParserConfig {
     ) -> Result<usize> {
         response.parse_with_config_and_uninit_headers(buf, self, headers)
     }
+
+    /// Set the maximum size of all headers.
+    ///
+    /// The value is based on the size of unparsed header fields, including the
+    /// length of the name and value in octets, an overhead of 24 octets for
+    /// each header field and 8 octets for each additional whitespace.
+    ///
+    /// Default is unlimited.
+    pub fn max_header_list_size(&mut self, val: usize) -> &mut Self {
+        self.max_header_list_size = Some(val);
+        self
+    }
 }
 
 /// A parsed Request.
@@ -547,6 +563,11 @@ impl<'h, 'b> Request<'h, 'b> {
         newline!(bytes);
 
         let len = orig_len - bytes.len();
+        if let Some(max) = config.max_header_list_size {
+            if len > max {
+                return Err(Error::HeadersTooLarge);
+            }
+        }
         let headers_len = complete!(parse_headers_iter_uninit(
             &mut headers,
             &mut bytes,
@@ -745,6 +766,11 @@ impl<'h, 'b> Response<'h, 'b> {
 
 
         let len = orig_len - bytes.len();
+        if let Some(max) = config.max_header_list_size {
+            if len > max {
+                return Err(Error::HeadersTooLarge);
+            }
+        }
         let headers_len = complete!(parse_headers_iter_uninit(
             &mut headers,
             &mut bytes,
@@ -2558,7 +2584,7 @@ mod tests {
         assert!(method.as_ptr() <= buf_end);
     }
 
-     static RESPONSE_WITH_SPACE_BEFORE_FIRST_HEADER: &[u8] =
+    static RESPONSE_WITH_SPACE_BEFORE_FIRST_HEADER: &[u8] =
         b"HTTP/1.1 200 OK\r\n Space-Before-Header: hello there\r\n\r\n";
 
     #[test]
@@ -2590,5 +2616,41 @@ mod tests {
         assert_eq!(response.headers.len(), 1);
         assert_eq!(response.headers[0].name, "Space-Before-Header");
         assert_eq!(response.headers[0].value, &b"hello there"[..]);
+    }
+
+    #[test]
+    fn test_request_max_header_list_size() {
+        const REQUEST: &[u8] = b"GET / HTTP/1.1\r\nHeader: value\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut request = Request::new(&mut headers[..]);
+
+        let result = crate::ParserConfig::default()
+            .max_header_list_size(10)
+            .parse_request(&mut request, REQUEST);
+        assert_eq!(result, Err(crate::Error::HeadersTooLarge));
+
+        let result = crate::ParserConfig::default()
+            .max_header_list_size(17)
+            .parse_request(&mut request, REQUEST);
+        assert_eq!(result, Ok(Status::Complete(REQUEST.len())));
+    }
+
+    #[test]
+    fn test_response_max_header_list_size() {
+        const RESPONSE: &[u8] = b"HTTP/1.1 200 OK\r\nHeader: value\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut response = Response::new(&mut headers[..]);
+
+        let result = crate::ParserConfig::default()
+            .max_header_list_size(10)
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Err(crate::Error::HeadersTooLarge));
+
+        let result = crate::ParserConfig::default()
+            .max_header_list_size(17)
+            .parse_response(&mut response, RESPONSE);
+        assert_eq!(result, Ok(Status::Complete(RESPONSE.len())));
     }
 }
