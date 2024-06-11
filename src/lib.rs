@@ -1511,6 +1511,20 @@ mod tests {
     }
 
     req! {
+        // test the avx2 parsing
+        test_request_header_no_space_after_colon,
+        b"GET / HTTP/1.1\r\nUser-Agent:omg-no-space1234567890some1234567890agent1234567890\r\n\r\n",
+        |req| {
+            assert_eq!(req.method.unwrap(), "GET");
+            assert_eq!(req.path.unwrap(), "/");
+            assert_eq!(req.version.unwrap(), 1);
+            assert_eq!(req.headers.len(), 1);
+            assert_eq!(req.headers[0].name, "User-Agent");
+            assert_eq!(req.headers[0].value, &b"omg-no-space1234567890some1234567890agent1234567890"[..]);
+        }
+    }
+
+    req! {
         test_request_headers_max,
         b"GET / HTTP/1.1\r\nA: A\r\nB: B\r\nC: C\r\nD: D\r\n\r\n",
         |req| {
@@ -2585,5 +2599,21 @@ mod tests {
         assert_eq!(response.headers.len(), 1);
         assert_eq!(response.headers[0].name, "Space-Before-Header");
         assert_eq!(response.headers[0].value, &b"hello there"[..]);
+    }
+
+    #[test]
+    fn test_no_space_after_colon() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut response = Response::new(&mut headers[..]);
+        let result = crate::ParserConfig::default()
+            .parse_response(&mut response, b"HTTP/1.1 200 OK\r\nfoo:bar\r\n\r\n");
+
+        assert_eq!(result, Ok(Status::Complete(28)));
+        assert_eq!(response.version.unwrap(), 1);
+        assert_eq!(response.code.unwrap(), 200);
+        assert_eq!(response.reason.unwrap(), "OK");
+        assert_eq!(response.headers.len(), 1);
+        assert_eq!(response.headers[0].name, "foo");
+        assert_eq!(response.headers[0].value, &b"bar"[..]);
     }
 }
