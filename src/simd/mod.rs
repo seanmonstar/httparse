@@ -11,7 +11,7 @@ mod swar;
         )
     ),
 )))]
-pub(crate) use self::swar::*;
+pub use self::swar::*;
 
 #[cfg(all(
     httparse_simd,
@@ -59,7 +59,7 @@ mod runtime;
         target_arch = "x86_64",
     ),
 ))]
-pub(crate) use self::runtime::*;
+pub use self::runtime::*;
 
 #[cfg(all(
     httparse_simd,
@@ -72,18 +72,18 @@ pub(crate) use self::runtime::*;
 ))]
 mod sse42_compile_time {
     #[inline(always)]
-    pub(crate) fn match_header_name_vectored(b: &[u8]) -> usize {
-        super::swar::match_header_name_vectored(b)
+    pub fn match_header_name_vectored(b: &mut crate::iter::Bytes<'_>) {
+        super::swar::match_header_name_vectored(b);
     }
 
     #[inline(always)]
-    pub(crate) fn match_uri_vectored(b: &[u8]) -> usize {
+    pub fn match_uri_vectored(b: &mut crate::iter::Bytes<'_>) {
         // SAFETY: calls are guarded by a compile time feature check
         unsafe { crate::simd::sse42::match_uri_vectored(b) }
     }
-
+    
     #[inline(always)]
-    pub(crate) fn match_header_value_vectored(b: &[u8]) -> usize {
+    pub fn match_header_value_vectored(b: &mut crate::iter::Bytes<'_>) {
         // SAFETY: calls are guarded by a compile time feature check
         unsafe { crate::simd::sse42::match_header_value_vectored(b) }
     }
@@ -98,7 +98,7 @@ mod sse42_compile_time {
         target_arch = "x86_64",
     ),
 ))]
-pub(crate) use self::sse42_compile_time::*;
+pub use self::sse42_compile_time::*;
 
 #[cfg(all(
     httparse_simd,
@@ -110,18 +110,18 @@ pub(crate) use self::sse42_compile_time::*;
 ))]
 mod avx2_compile_time {
     #[inline(always)]
-    pub(crate) fn match_header_name_vectored(b: &[u8]) -> usize {
-        super::swar::match_header_name_vectored(b)
+    pub fn match_header_name_vectored(b: &mut crate::iter::Bytes<'_>) {
+        super::swar::match_header_name_vectored(b);
     }
 
     #[inline(always)]
-    pub(crate) fn match_uri_vectored(b: &[u8]) -> usize {
+    pub fn match_uri_vectored(b: &mut crate::iter::Bytes<'_>) {
         // SAFETY: calls are guarded by a compile time feature check
         unsafe { crate::simd::avx2::match_uri_vectored(b) }
     }
-
+    
     #[inline(always)]
-    pub(crate) fn match_header_value_vectored(b: &[u8]) -> usize {
+    pub fn match_header_value_vectored(b: &mut crate::iter::Bytes<'_>) {
         // SAFETY: calls are guarded by a compile time feature check
         unsafe { crate::simd::avx2::match_header_value_vectored(b) }
     }
@@ -135,7 +135,7 @@ mod avx2_compile_time {
         target_arch = "x86_64",
     ),
 ))]
-pub(crate) use self::avx2_compile_time::*;
+pub use self::avx2_compile_time::*;
 
 #[cfg(all(
     httparse_simd,
@@ -149,4 +149,4 @@ mod neon;
     target_arch = "aarch64",
     httparse_simd_neon_intrinsics,
 ))]
-pub(crate) use self::neon::*;
+pub use self::neon::*;
