@@ -1,21 +1,18 @@
+use crate::iter::Bytes;
+
 #[inline]
 #[target_feature(enable = "avx2", enable = "sse4.2")]
-pub(crate) unsafe fn match_uri_vectored(bytes: &[u8]) -> usize {
-    let mut len = 0usize;
-    let mut remaining = bytes;
-    while remaining.len() >= 32 {
-        let advance = match_url_char_32_avx(remaining);
-        len = len.saturating_add(advance);
-        remaining = &bytes[len..];
+pub unsafe fn match_uri_vectored(bytes: &mut Bytes) {
+    while bytes.as_ref().len() >= 32 {
+        let advance = match_url_char_32_avx(bytes.as_ref());
+        bytes.advance(advance);
 
         if advance != 32 {
-            return len;
+            return;
         }
     }
     // do both, since avx2 only works when bytes.len() >= 32
-    let advance = super::sse42::match_uri_vectored(remaining);
-    len = len.saturating_add(advance);
-    len
+    super::sse42::match_uri_vectored(bytes)
 }
 
 #[inline(always)]
@@ -60,22 +57,17 @@ unsafe fn match_url_char_32_avx(buf: &[u8]) -> usize {
 }
 
 #[target_feature(enable = "avx2", enable = "sse4.2")]
-pub(crate) unsafe fn match_header_value_vectored(bytes: &[u8]) -> usize {
-    let mut len = 0usize;
-    let mut remaining = bytes;
-    while remaining.len() >= 32 {
-        let advance = match_header_value_char_32_avx(remaining);
-        len = len.saturating_add(advance);
-        remaining = &bytes[len..];
+pub unsafe fn match_header_value_vectored(bytes: &mut Bytes) {
+    while bytes.as_ref().len() >= 32 {
+        let advance = match_header_value_char_32_avx(bytes.as_ref());
+        bytes.advance(advance);
 
         if advance != 32 {
-            return len;
+            return;
         }
     }
     // do both, since avx2 only works when bytes.len() >= 32
-    let advance = super::sse42::match_header_value_vectored(remaining);
-    len = len.saturating_add(advance);
-    len
+    super::sse42::match_header_value_vectored(bytes)
 }
 
 #[inline(always)]
@@ -146,7 +138,7 @@ fn avx2_code_matches_header_value_chars_table() {
 }
 
 #[cfg(test)]
-unsafe fn byte_is_allowed(byte: u8, f: unsafe fn(bytes: &[u8]) -> usize) -> bool {
+unsafe fn byte_is_allowed(byte: u8, f: unsafe fn(bytes: &mut Bytes<'_>)) -> bool {
     let slice = [
         b'_', b'_', b'_', b'_',
         b'_', b'_', b'_', b'_',
@@ -157,9 +149,11 @@ unsafe fn byte_is_allowed(byte: u8, f: unsafe fn(bytes: &[u8]) -> usize) -> bool
         b'_', b'_', byte, b'_',
         b'_', b'_', b'_', b'_',
     ];
+    let mut bytes = Bytes::new(&slice);
 
-    let pos = f(&slice);
-    match pos {
+    f(&mut bytes);
+
+    match bytes.pos() {
         32 => true,
         26 => false,
         _ => unreachable!(),
