@@ -953,20 +953,20 @@ fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
 #[allow(missing_docs)]
 // WARNING: Exported for internal benchmarks, not fit for public consumption
 pub fn parse_uri<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
-    let start = bytes.pos();
-    simd::match_uri_vectored(bytes);
-    let end = bytes.pos();
+    // URI must have at least one char
+    let uri_len = simd::match_uri_vectored(bytes.as_ref());
+    if uri_len == 0 {
+        return Err(Error::Token);
+    }
+    // SAFETY: these bytes have just been matched here above.
+    unsafe { bytes.advance(uri_len) };
+    let uri_slice = bytes.slice();
 
-    if next!(bytes) == b' ' {
-        // URI must have at least one char
-        if end == start {
-            return Err(Error::Token);
-        }
-
-        return Ok(Status::Complete(
-            // SAFETY: all bytes up till `i` must have been `is_token` and therefore also utf-8.
-            unsafe { str::from_utf8_unchecked(bytes.slice_skip(1)) },
-        ));
+    let space_delim = next!(bytes);
+    if space_delim == b' ' {
+        // SAFETY: all bytes within `uri_slice` must have been `is_token` and therefore also utf-8.
+        let uri = unsafe { str::from_utf8_unchecked(uri_slice) };
+        Ok(Status::Complete(uri))
     } else {
         Err(Error::Token)
     }
@@ -1181,15 +1181,15 @@ fn parse_headers_iter_uninit<'a>(
         #[allow(clippy::never_loop)]
         // parse header name until colon
         let header_name: &str = 'name: loop {
-            simd::match_header_name_vectored(bytes);
-            let mut b = next!(bytes);
-
-            // SAFETY: previously bumped by 1 with next! -> always safe.
-            let bslice = unsafe { bytes.slice_skip(1) };
+            let len = simd::match_header_name_vectored(bytes.as_ref());
+            // SAFETY: these bytes have just been matched here above.
+            unsafe { bytes.advance(len) };
+            let bslice = bytes.slice();
             // SAFETY: previous call to match_header_name_vectored ensured all bytes are valid
             // header name chars, and as such also valid utf-8.
             let name = unsafe { str::from_utf8_unchecked(bslice) };
 
+            let mut b = next!(bytes);
             if b == b':' {
                 break 'name name;
             }
@@ -1215,6 +1215,7 @@ fn parse_headers_iter_uninit<'a>(
             // eat white space between colon and value
             'whitespace_after_colon: loop {
                 b = next!(bytes);
+
                 if b == b' ' || b == b'\t' {
                     bytes.slice();
                     continue 'whitespace_after_colon;
@@ -1241,7 +1242,9 @@ fn parse_headers_iter_uninit<'a>(
             'value_lines: loop {
                 // parse value till EOL
 
-                simd::match_header_value_vectored(bytes);
+                let len = simd::match_header_value_vectored(bytes.as_ref());
+                // SAFETY: these bytes have just been matched here above.
+                unsafe { bytes.advance(len) };
                 let b = next!(bytes);
 
                 //found_ctl
