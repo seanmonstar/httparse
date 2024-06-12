@@ -1192,6 +1192,7 @@ fn parse_headers_iter_uninit<'a>(
 
             let mut b = next!(bytes);
             if b == b':' {
+                bytes.slice();
                 break 'name name;
             }
 
