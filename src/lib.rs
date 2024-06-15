@@ -955,12 +955,14 @@ fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
 pub fn parse_uri<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
     let start = bytes.pos();
     simd::match_uri_vectored(bytes);
-    // URI must have at least one char
-    if bytes.pos() == start {
-        return Err(Error::Token);
-    }
+    let end = bytes.pos();
 
     if next!(bytes) == b' ' {
+        // URI must have at least one char
+        if end == start {
+            return Err(Error::Token);
+        }
+
         return Ok(Status::Complete(
             // SAFETY: all bytes up till `i` must have been `is_token` and therefore also utf-8.
             unsafe { str::from_utf8_unchecked(bytes.slice_skip(1)) },
