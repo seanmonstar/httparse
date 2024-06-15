@@ -1547,6 +1547,34 @@ mod tests {
         }
     }
 
+    // A single byte which is part of a method is not invalid
+    req! {
+        test_request_one_byte_method,
+        b"G", Ok(Status::Partial),
+        |_req| {}
+    }
+
+    // A subset of a method is a partial method, not invalid
+    req! {
+        test_request_partial_method,
+        b"GE", Ok(Status::Partial),
+        |_req| {}
+    }
+
+    // A method, without the delimiting space, is a partial request
+    req! {
+        test_request_method_no_delimiter,
+        b"GET", Ok(Status::Partial),
+        |_req| {}
+    }
+
+    // Regression test: assert that a partial read with just the method and
+    // space results in a partial, rather than a token error from uri parsing.
+    req! {
+        test_request_method_only,
+        b"GET ", Ok(Status::Partial),
+        |_req| {}
+    }
 
     req! {
         test_request_partial,
@@ -1557,6 +1585,18 @@ mod tests {
     req! {
         test_request_partial_version,
         b"GET / HTTP/1.", Ok(Status::Partial),
+        |_req| {}
+    }
+
+    req! {
+        test_request_method_path_no_delimiter,
+        b"GET /", Ok(Status::Partial),
+        |_req| {}
+    }
+
+    req! {
+        test_request_method_path_only,
+        b"GET / ", Ok(Status::Partial),
         |_req| {}
     }
 
