@@ -1834,6 +1834,24 @@ mod tests {
         }
     }
 
+    /// Check all subset permutations of a partial request line with no headers
+    #[test]
+    fn partial_permutations() {
+        let req_str = "GET / HTTP/1.1\r\n\r\n";
+        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+        let mut req = Request::new(&mut headers[..]);
+        for i in 0..req_str.len() {
+            let status = req.parse(req_str[..i].as_bytes());
+            assert_eq!(
+                status,
+                Ok(Status::Partial),
+                "partial request line should return partial. \
+                 Portion which failed: '{seg}' (below {i})",
+                seg = &req_str[..i]
+            );
+        }
+    }
+
     static RESPONSE_WITH_WHITESPACE_BETWEEN_HEADER_NAME_AND_COLON: &[u8] =
         b"HTTP/1.1 200 OK\r\nAccess-Control-Allow-Credentials : true\r\nBread: baguette\r\n\r\n";
 
