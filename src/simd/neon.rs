@@ -125,17 +125,12 @@ unsafe fn match_header_name_char_16_neon(ptr: *const u8) -> usize {
 unsafe fn match_url_char_16_neon(ptr: *const u8) -> usize {
     let input = vld1q_u8(ptr);
 
-    // Check that b'!' <= input <= b'~'
-    let result = vandq_u8(
-        vcleq_u8(vdupq_n_u8(b'!'), input),
-        vcleq_u8(input, vdupq_n_u8(b'~')),
-    );
-    // Check that input != b'<' and input != b'>'
-    let lt = vceqq_u8(input, vdupq_n_u8(b'<'));
-    let gt = vceqq_u8(input, vdupq_n_u8(b'>'));
-    let ltgt = vorrq_u8(lt, gt);
-    // Nand with result
-    let result = vbicq_u8(result, ltgt);
+    // Check that b'!' <= and b != 127
+    let result = vcleq_u8(vdupq_n_u8(b'!'), input);
+
+    // Disallow del
+    let del = vceqq_u8(input, vdupq_n_u8(0x7F));
+    let result = vbicq_u8(result, del);
 
     offsetz(result) as usize
 }
