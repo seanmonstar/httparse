@@ -64,12 +64,18 @@ jobs:
       - name: Run benchmarks (master)
         run: |
           git checkout master
-          CARGO_CFG_HTTPARSE_DISABLE_SIMD=1 cargo bench --bench parse ${{ matrix.feature != 'swar' && format('--features httparse_simd,httparse_simd_target_feature_{0}', matrix.feature) || '' }} -- --save-baseline master-${{ matrix.feature }}
+          cargo bench --bench parse ${{ matrix.feature != 'swar' && format('--features httparse_simd') || '' }} -- --save-baseline master-${{ matrix.feature }}
+        env:
+          CARGO_CFG_HTTPARSE_DISABLE_SIMD: 1
+          RUSTFLAGS: ${{ matrix.feature != 'swar' && format('-C target-feature=+{0}', matrix.feature) || '' }}
 
       - name: Run benchmarks (PR)
         run: |
           git checkout ${{ github.event.pull_request.head.sha }}
-          CARGO_CFG_HTTPARSE_DISABLE_SIMD=1 cargo bench --bench parse ${{ matrix.feature != 'swar' && format('--features httparse_simd,httparse_simd_target_feature_{0}', matrix.feature) || '' }} -- --save-baseline pr-${{ matrix.feature }}-${{ github.event.pull_request.number }}
+          cargo bench --bench parse ${{ matrix.feature != 'swar' && format('--features httparse_simd') || '' }} -- --save-baseline pr-${{ matrix.feature }}-${{ github.event.pull_request.number }}
+        env:
+          CARGO_CFG_HTTPARSE_DISABLE_SIMD: 1
+          RUSTFLAGS: ${{ matrix.feature != 'swar' && format('-C target-feature=+{0}', matrix.feature) || '' }}
 
       - name: Compare benchmarks
         run: |
@@ -99,12 +105,18 @@ jobs:
       - name: Run benchmarks (master)
         run: |
           git checkout master
-          CARGO_CFG_HTTPARSE_DISABLE_SIMD=1 cargo bench --bench parse ${{ matrix.feature == 'neon' && '--features httparse_simd,httparse_simd_neon_intrinsics' || '' }} -- --save-baseline master-aarch64-${{ matrix.feature }}
+          cargo bench --bench parse ${{ matrix.feature == 'neon' && '--features httparse_simd' || '' }} -- --save-baseline master-aarch64-${{ matrix.feature }}
+        env:
+          CARGO_CFG_HTTPARSE_DISABLE_SIMD: 1
+          RUSTFLAGS: ${{ matrix.feature == 'neon' && '-C target-feature=+neon' || '' }}
 
       - name: Run benchmarks (PR)
         run: |
           git checkout ${{ github.event.pull_request.head.sha }}
-          CARGO_CFG_HTTPARSE_DISABLE_SIMD=1 cargo bench --bench parse ${{ matrix.feature == 'neon' && '--features httparse_simd,httparse_simd_neon_intrinsics' || '' }} -- --save-baseline pr-aarch64-${{ matrix.feature }}-${{ github.event.pull_request.number }}
+          cargo bench --bench parse ${{ matrix.feature == 'neon' && '--features httparse_simd' || '' }} -- --save-baseline pr-aarch64-${{ matrix.feature }}-${{ github.event.pull_request.number }}
+        env:
+          CARGO_CFG_HTTPARSE_DISABLE_SIMD: 1
+          RUSTFLAGS: ${{ matrix.feature == 'neon' && '-C target-feature=+neon' || '' }}
 
       - name: Compare benchmarks
         run: |
