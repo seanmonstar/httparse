@@ -124,7 +124,7 @@ fn uri(c: &mut Criterion) {
     // 1b to 4096b
     for p in 0..=12 {
         let n = 1 << p;
-        _uri(c, &format!("uri_{}b", n), [chunk_4k[..n].to_vec(), S.into()].concat().leak());
+        _uri(c, &format!("uri_{:04}b", n), [chunk_4k[..n].to_vec(), S.into()].concat().leak());
     }
 }
 
@@ -148,20 +148,20 @@ fn header(c: &mut Criterion) {
     for p in 0..=12 {
         let n = 1 << p;
         let payload = [&xfoobar_4k[..n], b": b", RNRN].concat().leak();
-        _header(c, &format!("name_{}b", n), payload);
+        _header(c, &format!("name_{:04}b", n), payload);
     }
 
     // header values 1b to 4096b
     for p in 0..=12 {
         let n = 1 << p;
         let payload = [b"a: ", &xfoobar_4k[..n], RNRN].concat().leak();
-        _header(c, &format!("value_{}b", n), payload);
+        _header(c, &format!("value_{:04}b", n), payload);
     }
 
     // 1 to 128
     for p in 0..=7 {
         let n = 1 << p;
-        _header(c, &format!("count_{}", n), [TINY_RN.repeat(n), RN.into()].concat().leak());
+        _header(c, &format!("count_{:03}", n), [TINY_RN.repeat(n), RN.into()].concat().leak());
     }
 }
 
