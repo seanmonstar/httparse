@@ -1,83 +1,73 @@
 /// SWAR: SIMD Within A Register
 /// SIMD validator backend that validates register-sized chunks of data at a time.
-use crate::{is_header_name_token, is_header_value_token, is_uri_token, Bytes};
+use crate::{is_header_name_token, is_header_value_token, is_uri_token};
+use core::convert::TryInto;
 
 // Adapt block-size to match native register size, i.e: 32bit => 4, 64bit => 8
 const BLOCK_SIZE: usize = core::mem::size_of::<usize>();
 type ByteBlock = [u8; BLOCK_SIZE];
 
 #[inline]
-pub fn match_uri_vectored(bytes: &mut Bytes) {
-    loop {
-        if let Some(bytes8) = bytes.peek_n::<ByteBlock>(BLOCK_SIZE) {
-            let n = match_uri_char_8_swar(bytes8);
-            // SAFETY: using peek_n to retrieve the bytes ensures that there are at least n more bytes
-            // in `bytes`, so calling `advance(n)` is safe.
-            unsafe {
-                bytes.advance(n);
-            }
-            if n == BLOCK_SIZE {
-                continue;
-            }
+pub(crate) fn match_uri_vectored(bytes: &[u8]) -> usize {
+    let mut len = 0usize;
+    let mut remaining = bytes;
+    while remaining.len() >= BLOCK_SIZE {
+        let block = &remaining[..BLOCK_SIZE];
+        let advance = match_uri_char_8_swar(block.try_into().unwrap());
+        len = len.saturating_add(advance);
+        remaining = &bytes[len..];
+        if advance != BLOCK_SIZE {
+            // NOTE: must continue to tail-matching logic below, due to known
+            // false-negatives that need to be individually checked.
+            break;
         }
-        if let Some(b) = bytes.peek() {
-            if is_uri_token(b) {
-                // SAFETY: using peek to retrieve the byte ensures that there is at least 1 more byte
-                // in bytes, so calling advance is safe.
-                unsafe {
-                    bytes.advance(1);
-                }
-                continue;
-            }
-        }
-        break;
     }
+    let tail_len = match_tail(is_uri_token, remaining);
+    len = len.saturating_add(tail_len);
+    len
 }
 
 #[inline]
-pub fn match_header_value_vectored(bytes: &mut Bytes) {
-    loop {
-        if let Some(bytes8) = bytes.peek_n::<ByteBlock>(BLOCK_SIZE) {
-            let n = match_header_value_char_8_swar(bytes8);
-            // SAFETY: using peek_n to retrieve the bytes ensures that there are at least n more bytes
-            // in `bytes`, so calling `advance(n)` is safe.
-            unsafe {
-                bytes.advance(n);
-            }
-            if n == BLOCK_SIZE {
-                continue;
-            }
+pub(crate) fn match_header_value_vectored(bytes: &[u8]) -> usize {
+    let mut len = 0usize;
+    let mut remaining = bytes;
+    while remaining.len() >= BLOCK_SIZE {
+        let block = &remaining[..BLOCK_SIZE];
+        let advance = match_header_value_char_8_swar(block.try_into().unwrap());
+        len = len.saturating_add(advance);
+        remaining = &bytes[len..];
+        if advance != BLOCK_SIZE {
+            // NOTE: must continue to tail-matching logic below, due to known
+            // false-negatives that need to be individually checked.
+            break;
         }
-        if let Some(b) = bytes.peek() {
-            if is_header_value_token(b) {
-                // SAFETY: using peek to retrieve the byte ensures that there is at least 1 more byte
-                // in bytes, so calling advance is safe.
-                unsafe {
-                    bytes.advance(1);
-                }
-                continue;
-            }
-        }
-        break;
     }
+    let tail_len = match_tail(is_header_value_token, remaining);
+    len = len.saturating_add(tail_len);
+    len
 }
 
 #[inline]
-pub fn match_header_name_vectored(bytes: &mut Bytes) {
-    while let Some(block) = bytes.peek_n::<ByteBlock>(BLOCK_SIZE) {
-        let n = match_block(is_header_name_token, block);
-        // SAFETY: using peek_n to retrieve the bytes ensures that there are at least n more bytes
-        // in `bytes`, so calling `advance(n)` is safe.
-        unsafe {
-            bytes.advance(n);
-        }
-        if n != BLOCK_SIZE {
-            return;
-        }
+pub(crate) fn match_header_name_vectored(bytes: &[u8]) -> usize {
+    let mut len = 0usize;
+    let mut remaining = bytes;
+    while remaining.len() >= BLOCK_SIZE {
+        let block = &remaining[..BLOCK_SIZE];
+        let advance = block.iter().position(|b| !is_header_name_token(*b));
+        match advance {
+            None => {
+                len = len.saturating_add(BLOCK_SIZE);
+                remaining = &bytes[len..];
+            }
+            Some(v) => {
+                len = len.saturating_add(v);
+                return len;
+            }
+        };
     }
-    // SAFETY: match_tail processes at most the remaining data in `bytes`. advances `bytes` to the
-    // end, but no further.
-    unsafe { bytes.advance(match_tail(is_header_name_token, bytes.as_ref())) };
+    let tail_len = match_tail(is_header_name_token, remaining);
+    len = len.saturating_add(tail_len);
+    len
 }
 
 // Matches "tail", i.e: when we have <BLOCK_SIZE bytes in the buffer, should be uncommon
@@ -90,17 +80,6 @@ fn match_tail(f: impl Fn(u8) -> bool, bytes: &[u8]) -> usize {
         }
     }
     bytes.len()
-}
-
-// Naive fallback block matcher
-#[inline(always)]
-fn match_block(f: impl Fn(u8) -> bool, block: ByteBlock) -> usize {
-    for (i, &b) in block.iter().enumerate() {
-        if !f(b) {
-            return i;
-        }
-    }
-    BLOCK_SIZE
 }
 
 // A const alternative to u64::from_ne_bytes to avoid bumping MSRV (1.36 => 1.44)
