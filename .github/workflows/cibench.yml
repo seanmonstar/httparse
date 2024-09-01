@@ -34,14 +34,14 @@ jobs:
       - name: Run benchmarks (PR)
         run: |
           git checkout ${{ github.event.pull_request.head.sha }}
-          cargo bench --bench parse -- --save-baseline pr
+          cargo bench --bench parse -- --save-baseline pr-${{ github.event.pull_request.number }}
 
       - name: Compare benchmarks
         run: |
           critcmp master pr-${{ github.event.pull_request.number }}
 
-  benchmark-simd:
-    name: Run SIMD benchmarks
+  benchmark-x64:
+    name: Run x64 benchmarks
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -64,20 +64,23 @@ jobs:
       - name: Run benchmarks (master)
         run: |
           git checkout master
-          cargo bench --bench parse --features ${{ matrix.feature }} -- --save-baseline master-${{ matrix.feature }}
+          CARGO_CFG_HTTPARSE_DISABLE_SIMD=1 cargo bench --bench parse ${{ matrix.feature != 'swar' && format('--features httparse_simd,httparse_simd_target_feature_{0}', matrix.feature) || '' }} -- --save-baseline master-${{ matrix.feature }}
 
       - name: Run benchmarks (PR)
         run: |
           git checkout ${{ github.event.pull_request.head.sha }}
-          cargo bench --bench parse --features ${{ matrix.feature }} -- --save-baseline pr-${{ matrix.feature }}
+          CARGO_CFG_HTTPARSE_DISABLE_SIMD=1 cargo bench --bench parse ${{ matrix.feature != 'swar' && format('--features httparse_simd,httparse_simd_target_feature_{0}', matrix.feature) || '' }} -- --save-baseline pr-${{ matrix.feature }}-${{ github.event.pull_request.number }}
 
       - name: Compare benchmarks
         run: |
           critcmp master-${{ matrix.feature }} pr-${{ matrix.feature }}-${{ github.event.pull_request.number }}
 
   benchmark-aarch64:
-    name: Run aarch64/neon benchmarks
+    name: Run aarch64 benchmarks
     runs-on: macos-latest
+    strategy:
+      matrix:
+        feature: [swar, neon]
     steps:
       - uses: actions/checkout@v3
         with:
@@ -96,13 +99,13 @@ jobs:
       - name: Run benchmarks (master)
         run: |
           git checkout master
-          cargo bench --bench parse --features neon -- --save-baseline master-aarch64
+          CARGO_CFG_HTTPARSE_DISABLE_SIMD=1 cargo bench --bench parse ${{ matrix.feature == 'neon' && '--features httparse_simd,httparse_simd_neon_intrinsics' || '' }} -- --save-baseline master-aarch64-${{ matrix.feature }}
 
       - name: Run benchmarks (PR)
         run: |
           git checkout ${{ github.event.pull_request.head.sha }}
-          cargo bench --bench parse --features neon -- --save-baseline pr-aarch64
+          CARGO_CFG_HTTPARSE_DISABLE_SIMD=1 cargo bench --bench parse ${{ matrix.feature == 'neon' && '--features httparse_simd,httparse_simd_neon_intrinsics' || '' }} -- --save-baseline pr-aarch64-${{ matrix.feature }}-${{ github.event.pull_request.number }}
 
       - name: Compare benchmarks
         run: |
-          critcmp master-aarch64 pr-aarch64-${{ github.event.pull_request.number }}
+          critcmp master-aarch64-${{ matrix.feature }} pr-aarch64-${{ matrix.feature }}-${{ github.event.pull_request.number }}
