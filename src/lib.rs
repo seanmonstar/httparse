@@ -953,17 +953,18 @@ fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
 #[allow(missing_docs)]
 // WARNING: Exported for internal benchmarks, not fit for public consumption
 pub fn parse_uri<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
-    // URI must have at least one char
     let uri_len = simd::match_uri_vectored(bytes.as_ref());
-    if uri_len == 0 {
-        return Err(Error::Token);
-    }
     // SAFETY: these bytes have just been matched here above.
     unsafe { bytes.advance(uri_len) };
+
     let uri_slice = bytes.slice();
 
     let space_delim = next!(bytes);
     if space_delim == b' ' {
+        // URI must have at least one char
+        if uri_len == 0 {
+            return Err(Error::Token);
+        }
         // SAFETY: all bytes within `uri_slice` must have been `is_token` and therefore also utf-8.
         let uri = unsafe { str::from_utf8_unchecked(uri_slice) };
         Ok(Status::Complete(uri))
