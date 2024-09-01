@@ -38,7 +38,7 @@ jobs:
 
       - name: Compare benchmarks
         run: |
-          critcmp master pr-${{ github.event.pull_request.number }}
+          critcmp -t 5 master pr-${{ github.event.pull_request.number }}
 
   benchmark-x64:
     name: Run x64 benchmarks
@@ -79,7 +79,7 @@ jobs:
 
       - name: Compare benchmarks
         run: |
-          critcmp master-${{ matrix.feature }} pr-${{ matrix.feature }}-${{ github.event.pull_request.number }}
+          critcmp -t 5 master-${{ matrix.feature }} pr-${{ matrix.feature }}-${{ github.event.pull_request.number }}
 
   benchmark-aarch64:
     name: Run aarch64 benchmarks
@@ -120,4 +120,4 @@ jobs:
 
       - name: Compare benchmarks
         run: |
-          critcmp master-aarch64-${{ matrix.feature }} pr-aarch64-${{ matrix.feature }}-${{ github.event.pull_request.number }}
+          critcmp -t 5 master-aarch64-${{ matrix.feature }} pr-aarch64-${{ matrix.feature }}-${{ github.event.pull_request.number }}
