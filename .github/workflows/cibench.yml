@@ -34,11 +34,11 @@ jobs:
       - name: Run benchmarks (PR)
         run: |
           git checkout ${{ github.event.pull_request.head.sha }}
-          cargo bench --bench parse -- --save-baseline pr-${{ github.event.pull_request.number }}
+          cargo bench --bench parse -- --save-baseline pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
 
       - name: Compare benchmarks
         run: |
-          critcmp -t 5 master pr-${{ github.event.pull_request.number }}
+          critcmp -t 5 master pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
 
   benchmark-x64:
     name: Run x64 benchmarks
@@ -72,14 +72,14 @@ jobs:
       - name: Run benchmarks (PR)
         run: |
           git checkout ${{ github.event.pull_request.head.sha }}
-          cargo bench --bench parse -- --save-baseline pr-${{ github.event.pull_request.number }}-${{ matrix.feature }}
+          cargo bench --bench parse -- --save-baseline pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-${{ matrix.feature }}
         env:
           CARGO_CFG_HTTPARSE_DISABLE_SIMD: ${{ matrix.feature == 'swar' && '1' || '0' }}
           RUSTFLAGS: ${{ matrix.feature != 'swar' && format('-C target-feature=+{0}', matrix.feature) || '' }}
 
       - name: Compare benchmarks
         run: |
-          critcmp -t 5 master-${{ matrix.feature }} pr-${{ github.event.pull_request.number }}-${{ matrix.feature }}
+          critcmp -t 5 master-${{ matrix.feature }} pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-${{ matrix.feature }}
 
   benchmark-aarch64:
     name: Run aarch64 benchmarks
@@ -113,11 +113,11 @@ jobs:
       - name: Run benchmarks (PR)
         run: |
           git checkout ${{ github.event.pull_request.head.sha }}
-          cargo bench --bench parse -- --save-baseline pr-${{ github.event.pull_request.number }}-aarch64-${{ matrix.feature }}
+          cargo bench --bench parse -- --save-baseline pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-aarch64-${{ matrix.feature }}
         env:
           CARGO_CFG_HTTPARSE_DISABLE_SIMD: ${{ matrix.feature == 'swar' && '1' || '0' }}
           RUSTFLAGS: ${{ matrix.feature == 'neon' && '-C target-feature=+neon' || '' }}
 
       - name: Compare benchmarks
         run: |
-          critcmp -t 5 master-aarch64-${{ matrix.feature }} pr-${{ github.event.pull_request.number }}-aarch64-${{ matrix.feature }}
+          critcmp -t 5 master-aarch64-${{ matrix.feature }} pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-aarch64-${{ matrix.feature }}
