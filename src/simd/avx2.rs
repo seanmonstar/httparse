@@ -1,7 +1,7 @@
 use crate::iter::Bytes;
 
 #[inline]
-#[target_feature(enable = "avx2", enable = "sse4.2")]
+#[target_feature(enable = "avx2")]
 pub unsafe fn match_uri_vectored(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 32 {
         let advance = match_url_char_32_avx(bytes.as_ref());
@@ -11,8 +11,8 @@ pub unsafe fn match_uri_vectored(bytes: &mut Bytes) {
             return;
         }
     }
-    // do both, since avx2 only works when bytes.len() >= 32
-    super::sse42::match_uri_vectored(bytes)
+    // NOTE: use SWAR for <32B, more efficient than falling back to SSE4.2
+    super::swar::match_uri_vectored(bytes)
 }
 
 #[inline(always)]
@@ -56,7 +56,7 @@ unsafe fn match_url_char_32_avx(buf: &[u8]) -> usize {
     r.trailing_zeros() as usize
 }
 
-#[target_feature(enable = "avx2", enable = "sse4.2")]
+#[target_feature(enable = "avx2")]
 pub unsafe fn match_header_value_vectored(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 32 {
         let advance = match_header_value_char_32_avx(bytes.as_ref());
@@ -66,8 +66,8 @@ pub unsafe fn match_header_value_vectored(bytes: &mut Bytes) {
             return;
         }
     }
-    // do both, since avx2 only works when bytes.len() >= 32
-    super::sse42::match_header_value_vectored(bytes)
+    // NOTE: use SWAR for <32B, more efficient than falling back to SSE4.2
+    super::swar::match_header_value_vectored(bytes)
 }
 
 #[inline(always)]
