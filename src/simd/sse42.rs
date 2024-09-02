@@ -1,7 +1,7 @@
 use crate::iter::Bytes;
 
 #[target_feature(enable = "sse4.2")]
-pub unsafe fn match_uri_vectored(bytes: &mut Bytes) {
+pub(crate) unsafe fn match_uri_vectored(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 16 {
         let advance = match_url_char_16_sse(bytes.as_ref());
         bytes.advance(advance);
@@ -62,7 +62,7 @@ unsafe fn match_url_char_16_sse(buf: &[u8]) -> usize {
 }
 
 #[target_feature(enable = "sse4.2")]
-pub unsafe fn match_header_value_vectored(bytes: &mut Bytes) {
+pub(crate) unsafe fn match_header_value_vectored(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 16 {
         let advance = match_header_value_char_16_sse(bytes.as_ref());
         bytes.advance(advance);

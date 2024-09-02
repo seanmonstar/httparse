@@ -2,7 +2,7 @@ use crate::iter::Bytes;
 use core::arch::aarch64::*;
 
 #[inline]
-pub fn match_header_name_vectored(bytes: &mut Bytes) {
+pub(crate) fn match_header_name_vectored(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 16 {
         // SAFETY: ensured that there are at least 16 bytes remaining 
         unsafe {
@@ -18,7 +18,7 @@ pub fn match_header_name_vectored(bytes: &mut Bytes) {
 }
 
 #[inline]
-pub fn match_header_value_vectored(bytes: &mut Bytes) {
+pub(crate) fn match_header_value_vectored(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 16 {
         // SAFETY: ensured that there are at least 16 bytes remaining 
         unsafe {
@@ -34,7 +34,7 @@ pub fn match_header_value_vectored(bytes: &mut Bytes) {
 }
 
 #[inline]
-pub fn match_uri_vectored(bytes: &mut Bytes) {
+pub(crate) fn match_uri_vectored(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 16 {
         // SAFETY: ensured that there are at least 16 bytes remaining 
         unsafe {

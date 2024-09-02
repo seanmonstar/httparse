@@ -2,7 +2,7 @@ use crate::iter::Bytes;
 
 #[inline]
 #[target_feature(enable = "avx2", enable = "sse4.2")]
-pub unsafe fn match_uri_vectored(bytes: &mut Bytes) {
+pub(crate) unsafe fn match_uri_vectored(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 32 {
         let advance = match_url_char_32_avx(bytes.as_ref());
         bytes.advance(advance);
@@ -57,7 +57,7 @@ unsafe fn match_url_char_32_avx(buf: &[u8]) -> usize {
 }
 
 #[target_feature(enable = "avx2", enable = "sse4.2")]
-pub unsafe fn match_header_value_vectored(bytes: &mut Bytes) {
+pub(crate) unsafe fn match_header_value_vectored(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 32 {
         let advance = match_header_value_char_32_avx(bytes.as_ref());
         bytes.advance(advance);
