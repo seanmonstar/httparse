@@ -1063,11 +1063,11 @@ fn parse_headers_iter_uninit<'a>(headers: &mut &mut [MaybeUninit<Header<'a>>], b
         impl HeaderMatcher for Avx2HeaderMatcher {
             #[inline(always)]
             fn match_name(bytes: &mut Bytes) {
-                simd::avx2::match_header_name_vectored(bytes)
+                simd::avx2_match_header_name_vectored(bytes)
             }
             #[inline(always)]
             fn match_value(bytes: &mut Bytes) {
-                simd::avx2::match_header_value_vectored(bytes)
+                simd::avx2_match_header_value_vectored(bytes)
             }
         }
 
@@ -1079,11 +1079,11 @@ fn parse_headers_iter_uninit<'a>(headers: &mut &mut [MaybeUninit<Header<'a>>], b
         impl HeaderMatcher for Sse42HeaderMatcher {
             #[inline(always)]
             fn match_name(bytes: &mut Bytes) {
-                simd::sse42::match_header_name_vectored(bytes)
+                simd::sse42_match_header_name_vectored(bytes)
             }
             #[inline(always)]
             fn match_value(bytes: &mut Bytes) {
-                simd::sse42::match_header_value_vectored(bytes)
+                simd::sse42_match_header_value_vectored(bytes)
             }
         }
 
@@ -1095,11 +1095,11 @@ fn parse_headers_iter_uninit<'a>(headers: &mut &mut [MaybeUninit<Header<'a>>], b
         impl HeaderMatcher for SwarHeaderMatcher {
             #[inline(always)]
             fn match_name(bytes: &mut Bytes) {
-                simd::swar::match_header_name_vectored(bytes)
+                simd::swar_match_header_name_vectored(bytes)
             }
             #[inline(always)]
             fn match_value(bytes: &mut Bytes) {
-                simd::swar::match_header_value_vectored(bytes)
+                simd::swar_match_header_value_vectored(bytes)
             }
         }
 
