@@ -1,7 +1,7 @@
-use std::sync::atomic::{AtomicU8, Ordering};
-use crate::iter::Bytes;
 use super::avx2;
 use super::sse42;
+use crate::iter::Bytes;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 const AVX2: u8 = 1;
 const SSE42: u8 = 2;
@@ -34,24 +34,41 @@ pub fn match_header_name_vectored(bytes: &mut Bytes) {
     super::swar::match_header_name_vectored(bytes);
 }
 
-pub fn match_uri_vectored(bytes: &mut Bytes) {
-    // SAFETY: calls are guarded by a feature check
+static mut MATCH_URI_VECTORED: fn(&mut Bytes) = setup_and_call_match_uri_vectored;
+static mut MATCH_HEADER_VALUE_VECTORED: fn(&mut Bytes) = setup_and_call_match_header_value_vectored;
+
+fn setup_and_call_match_uri_vectored(bytes: &mut Bytes) {
     unsafe {
-        match get_runtime_feature() {
-            AVX2 => avx2::match_uri_vectored(bytes),
-            SSE42 => sse42::match_uri_vectored(bytes),
-            _ /* NOP */ => super::swar::match_uri_vectored(bytes),
-        }
+        let feature = get_runtime_feature();
+        MATCH_URI_VECTORED = match feature {
+            AVX2 => avx2::match_uri_vectored,
+            SSE42 => sse42::match_uri_vectored,
+            _ /* NOP */ => super::swar::match_uri_vectored,
+        };
+        MATCH_URI_VECTORED(bytes);
+    }
+}
+
+fn setup_and_call_match_header_value_vectored(bytes: &mut Bytes) {
+    unsafe {
+        let feature = get_runtime_feature();
+        MATCH_HEADER_VALUE_VECTORED = match feature {
+            AVX2 => avx2::match_header_value_vectored,
+            SSE42 => sse42::match_header_value_vectored,
+            _ /* NOP */ => super::swar::match_header_value_vectored,
+        };
+        MATCH_HEADER_VALUE_VECTORED(bytes);
+    }
+}
+
+pub fn match_uri_vectored(bytes: &mut Bytes) {
+    unsafe {
+        MATCH_URI_VECTORED(bytes);
     }
 }
 
 pub fn match_header_value_vectored(bytes: &mut Bytes) {
-    // SAFETY: calls are guarded by a feature check
     unsafe {
-        match get_runtime_feature() {
-            AVX2 => avx2::match_header_value_vectored(bytes),
-            SSE42 => sse42::match_header_value_vectored(bytes),
-            _ /* NOP */ => super::swar::match_header_value_vectored(bytes),
-        }
+        MATCH_HEADER_VALUE_VECTORED(bytes);
     }
 }
