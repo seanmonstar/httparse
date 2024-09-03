@@ -15,6 +15,7 @@ pub use self::swar::*;
 
 #[cfg(all(
     httparse_simd,
+    not(httparse_simd_target_feature_avx2),
     any(
         target_arch = "x86",
         target_arch = "x86_64",
