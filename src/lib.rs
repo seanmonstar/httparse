@@ -2184,6 +2184,106 @@ mod tests {
         assert_eq!(result, Err(crate::Error::Token));
     }
 
+    #[test]
+    fn test_all_utf8_char_in_paths() {
+        // two code points
+        for i in 128..256 {
+            for j in 128..256 {
+                let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+                let mut request = Request::new(&mut headers[..]);
+                let bytes = [i as u8, j as u8];
+
+                match core::str::from_utf8(&bytes) {
+                    Ok(s) => {
+                        let first_line = format!("GET /{} HTTP/1.1\r\n\r\n", s);
+                        let result = crate::ParserConfig::default()
+                            .allow_multiple_spaces_in_request_line_delimiters(true)
+                            .parse_request(&mut request, first_line.as_bytes());
+
+                        assert_eq!(result, Ok(Status::Complete(20)), "failed for utf8 char i: {}, j: {}", i, j);
+                    },
+                    Err(_) => {
+                        let mut first_line = b"GET /".to_vec();
+                        first_line.extend(&bytes);
+                        first_line.extend(b" HTTP/1.1\r\n\r\n");
+
+                        let result = crate::ParserConfig::default()
+                            .allow_multiple_spaces_in_request_line_delimiters(true)
+                            .parse_request(&mut request, first_line.as_slice());
+
+                        assert_eq!(result, Err(crate::Error::Token), "failed for utf8 char i: {}, j: {}", i, j);
+                    },
+                };
+
+                // three code points starting from 0xe0
+                if i < 0xe0 {
+                    continue;
+                }
+
+                for k in 128..256 {
+                    let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+                    let mut request = Request::new(&mut headers[..]);
+                    let bytes = [i as u8, j as u8, k as u8];
+
+                    match core::str::from_utf8(&bytes) {
+                        Ok(s) => {
+                            let first_line = format!("GET /{} HTTP/1.1\r\n\r\n", s);
+                            let result = crate::ParserConfig::default()
+                                .allow_multiple_spaces_in_request_line_delimiters(true)
+                                .parse_request(&mut request, first_line.as_bytes());
+
+                            assert_eq!(result, Ok(Status::Complete(21)), "failed for utf8 char i: {}, j: {}, k: {}", i, j, k);
+                        },
+                        Err(_) => {
+                            let mut first_line = b"GET /".to_vec();
+                            first_line.extend(&bytes);
+                            first_line.extend(b" HTTP/1.1\r\n\r\n");
+
+                            let result = crate::ParserConfig::default()
+                                .allow_multiple_spaces_in_request_line_delimiters(true)
+                                .parse_request(&mut request, first_line.as_slice());
+
+                            assert_eq!(result, Err(crate::Error::Token), "failed for utf8 char i: {}, j: {}, k: {}", i, j, k);
+                        },
+                    };
+
+                    // four code points starting from 0xf0
+                    if i < 0xf0 {
+                        continue;
+                    }
+
+                    for l in 128..256 {
+                        let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
+                        let mut request = Request::new(&mut headers[..]);
+                        let bytes = [i as u8, j as u8, k as u8, l as u8];
+
+                        match core::str::from_utf8(&bytes) {
+                            Ok(s) => {
+                                let first_line = format!("GET /{} HTTP/1.1\r\n\r\n", s);
+                                let result = crate::ParserConfig::default()
+                                    .allow_multiple_spaces_in_request_line_delimiters(true)
+                                    .parse_request(&mut request, first_line.as_bytes());
+
+                                assert_eq!(result, Ok(Status::Complete(22)), "failed for utf8 char i: {}, j: {}, k: {}, l: {}", i, j, k, l);
+                            },
+                            Err(_) => {
+                                let mut first_line = b"GET /".to_vec();
+                                first_line.extend(&bytes);
+                                first_line.extend(b" HTTP/1.1\r\n\r\n");
+
+                                let result = crate::ParserConfig::default()
+                                    .allow_multiple_spaces_in_request_line_delimiters(true)
+                                    .parse_request(&mut request, first_line.as_slice());
+
+                                assert_eq!(result, Err(crate::Error::Token), "failed for utf8 char i: {}, j: {}, k: {}, l: {}", i, j, k, l);
+                            },
+                        };
+                    }
+                }
+            }
+        }
+    }
+
     static RESPONSE_WITH_SPACES_IN_CODE: &[u8] = b"HTTP/1.1 99 200 OK\r\n\r\n";
 
     #[test]
