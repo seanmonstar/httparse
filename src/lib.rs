@@ -2185,6 +2185,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Miri is too slow for this test
     fn test_all_utf8_char_in_paths() {
         // two code points
         for i in 128..256 {
