@@ -853,7 +853,11 @@ pub fn parse_method<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
             };
             Ok(Status::Complete(method))
         }
-        Some(POST) if bytes.peek_ahead(4) == Some(b' ') => {
+        Some(POST)
+            if unsafe {
+                (bytes.cursor.add(4) < bytes.end).then(|| *bytes.cursor.add(4)) == Some(b' ')
+            } =>
+        {
             // SAFETY: matched the ASCII string and boundary checked
             let method = unsafe {
                 bytes.advance(5);
