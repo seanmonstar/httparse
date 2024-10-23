@@ -1018,21 +1018,14 @@ fn parse_headers_iter<'a>(
 ) -> Result<usize> {
     parse_headers_iter_uninit(
         /* SAFETY: see `parse_headers_iter_uninit` guarantees */
-        unsafe { deinit_slice_mut(headers) },
+        unsafe { &mut *(headers as *mut &mut _ as *mut &mut [MaybeUninit<_>]) },
         bytes,
         config,
     )
 }
 
-unsafe fn deinit_slice_mut<'a, 'b, T>(s: &'a mut &'b mut [T]) -> &'a mut &'b mut [MaybeUninit<T>] {
-    let s: *mut &mut [T] = s;
-    let s = s as *mut &mut [MaybeUninit<T>];
-    &mut *s
-}
 unsafe fn assume_init_slice<T>(s: &mut [MaybeUninit<T>]) -> &mut [T] {
-    let s: *mut [MaybeUninit<T>] = s;
-    let s = s as *mut [T];
-    &mut *s
+    &mut *(s as *mut _ as *mut [_])
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1043,7 +1036,7 @@ struct HeaderParserConfig {
     ignore_invalid_headers: bool,
 }
 
-/* Function which parsers headers into uninitialized buffer.
+/* Function which parses headers into uninitialized buffer.
  *
  * Guarantees that it doesn't write garbage, so casting
  * &mut &mut [Header] -> &mut &mut [MaybeUninit<Header>]
