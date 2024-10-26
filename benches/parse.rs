@@ -181,7 +181,7 @@ fn version(c: &mut Criterion) {
 }
 
 fn method(c: &mut Criterion) {
-    fn _method(c: &mut Criterion, name: &str, input: &'static [u8]) {
+    fn _method(c: &mut Criterion, name: &str, input: &[u8]) {
         c.benchmark_group("method")
         .throughput(Throughput::Bytes(input.len() as u64))
         .bench_function(name, |b| b.iter(|| {
@@ -193,10 +193,42 @@ fn method(c: &mut Criterion) {
     // Common methods should be fast-pathed
     const COMMON_METHODS: &[&str] = &["GET", "HEAD", "POST", "PUT", "DELETE", "CONNECT", "OPTIONS", "TRACE", "PATCH"];
     for method in COMMON_METHODS {
-        _method(c, &method.to_lowercase(), format!("{} / HTTP/1.1\r\n", method).into_bytes().leak());
+        _method(c, &method.to_lowercase(), format!("{} / HTTP/1.1\r\n", method).as_bytes());
     }
     // Custom methods should be infrequent and thus not worth optimizing
     _method(c, "custom", b"CUSTOM / HTTP/1.1\r\n");
+    _method(c, "w3!rd", b"w3!rd / HTTP/1.1\r\n");
+}
+
+fn many_requests(c: &mut Criterion) {
+    use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
+    let mut requests = [
+        ("GET", 500),
+        ("POST", 300),
+        ("OPTIONS", 100),
+        ("HEAD", 50),
+        ("w3!r`d", 20),
+    ]
+    .iter()
+    .flat_map(|&(method, count)| std::iter::repeat(method).take(count))
+    .map(|method| format!("{method} / HTTP/1.1\r\n\r\n"))
+    .collect::<Vec<_>>();
+    SliceRandom::shuffle(&mut *requests, &mut StdRng::seed_from_u64(0));
+
+    let total_bytes: usize = requests.iter().map(String::len).sum();
+
+    c.benchmark_group("many_requests")
+        .throughput(Throughput::Bytes(total_bytes as u64))
+        .measurement_time(Duration::from_secs(1))
+        .sample_size(1000)
+        .bench_function("_", |b| {
+            b.iter(|| {
+                requests.iter().for_each(|req| {
+                    let mut b = httparse::_benchable::Bytes::new(black_box(req.as_bytes()));
+                    httparse::_benchable::parse_method(&mut b).unwrap();
+                });
+            })
+        });
 }
 
 const WARMUP: Duration = Duration::from_millis(100);
@@ -205,6 +237,6 @@ const SAMPLES: usize = 200;
 criterion_group!{
     name = benches;
     config = Criterion::default().sample_size(SAMPLES).warm_up_time(WARMUP).measurement_time(MTIME);
-    targets = req, req_short, resp, resp_short, uri, header, version, method
+    targets = req, req_short, resp, resp_short, uri, header, version, method, many_requests
 }
 criterion_main!(benches);
