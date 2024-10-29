@@ -44,7 +44,7 @@ pub mod _benchable {
     pub use super::iter::Bytes;
 }
 
-/// Determines if byte is a token char.
+/// Determines if byte is a method token char.
 ///
 /// > ```notrust
 /// > token          = 1*tchar
@@ -55,8 +55,12 @@ pub mod _benchable {
 /// >                ; any VCHAR, except delimiters
 /// > ```
 #[inline]
-fn is_token(b: u8) -> bool {
-    b > 0x1F && b < 0x7F
+fn is_method_token(b: u8) -> bool {
+    match b {
+        // For the majority case, this can be faster than the table lookup.
+        b'A'..=b'Z' => true,
+        _ => TOKEN_MAP[b as usize],
+    }
 }
 
 // ASCII codes to accept URI string.
@@ -95,7 +99,7 @@ pub(crate) fn is_uri_token(b: u8) -> bool {
     URI_MAP[b as usize]
 }
 
-static HEADER_NAME_MAP: [bool; 256] = byte_map![
+static TOKEN_MAP: [bool; 256] = byte_map![
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 1, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0,
@@ -116,7 +120,7 @@ static HEADER_NAME_MAP: [bool; 256] = byte_map![
 
 #[inline]
 pub(crate) fn is_header_name_token(b: u8) -> bool {
-    HEADER_NAME_MAP[b as usize]
+    TOKEN_MAP[b as usize]
 }
 
 static HEADER_VALUE_MAP: [bool; 256] = byte_map![
@@ -930,7 +934,7 @@ fn parse_reason<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
 #[inline]
 fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
     let b = next!(bytes);
-    if !is_token(b) {
+    if !is_method_token(b) {
         // First char must be a token char, it can't be a space which would indicate an empty token.
         return Err(Error::Token);
     }
@@ -939,10 +943,10 @@ fn parse_token<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
         let b = next!(bytes);
         if b == b' ' {
             return Ok(Status::Complete(
-                // SAFETY: all bytes up till `i` must have been `is_token` and therefore also utf-8.
+                // SAFETY: all bytes up till `i` must have been `is_method_token` and therefore also utf-8.
                 unsafe { str::from_utf8_unchecked(bytes.slice_skip(1)) },
             ));
-        } else if !is_token(b) {
+        } else if !is_method_token(b) {
             return Err(Error::Token);
         }
     }
@@ -964,7 +968,7 @@ pub fn parse_uri<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
         }
 
         return Ok(Status::Complete(
-            // SAFETY: all bytes up till `i` must have been `is_token` and therefore also utf-8.
+            // SAFETY: all bytes up till `i` must have been `is_method_token` and therefore also utf-8.
             unsafe { str::from_utf8_unchecked(bytes.slice_skip(1)) },
         ));
     } else {
@@ -1383,7 +1387,7 @@ pub fn parse_chunk_size(buf: &[u8])
 
 #[cfg(test)]
 mod tests {
-    use super::{Request, Response, Status, EMPTY_HEADER, parse_chunk_size};
+    use super::{Error, Request, Response, Status, EMPTY_HEADER, parse_chunk_size};
 
     const NUM_OF_HEADERS: usize = 4;
 
@@ -2675,5 +2679,25 @@ mod tests {
         assert_eq!(response.headers.len(), 1);
         assert_eq!(response.headers[0].name, "foo");
         assert_eq!(response.headers[0].value, &b"bar"[..]);
+    }
+
+    #[test]
+    fn test_request_with_leading_space() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut request = Request::new(&mut headers[..]);
+        let result = crate::ParserConfig::default()
+            .parse_request(&mut request, b" GET / HTTP/1.1\r\nfoo:bar\r\n\r\n");
+
+        assert_eq!(result, Err(Error::Token));
+    }
+
+    #[test]
+    fn test_request_with_invalid_method() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut request = Request::new(&mut headers[..]);
+        let result = crate::ParserConfig::default()
+            .parse_request(&mut request, b"P()ST / HTTP/1.1\r\nfoo:bar\r\n\r\n");
+
+        assert_eq!(result, Err(Error::Token));
     }
 }
