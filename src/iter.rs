@@ -43,12 +43,9 @@ impl<'a> Bytes<'a> {
 
     #[inline]
     pub fn peek_ahead(&self, n: usize) -> Option<u8> {
-        // SAFETY: obtain a potentially OOB pointer that is later compared against the `self.end`
-        // pointer.
-        let ptr = self.cursor.wrapping_add(n);
-        if ptr < self.end {
+        if n < self.len() {
             // SAFETY: bounds checked pointer dereference is safe
-            Some(unsafe { *ptr })
+            Some(unsafe { *self.cursor.add(n) })
         } else {
             None
         }
