@@ -1,5 +1,5 @@
-use core::convert::TryInto;
 use core::convert::TryFrom;
+use core::convert::TryInto;
 
 #[allow(missing_docs)]
 pub struct Bytes<'a> {
@@ -41,19 +41,27 @@ impl<'a> Bytes<'a> {
         }
     }
 
+    /// Peek at byte `n` ahead of cursor
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure that `n <= self.len()`, otherwise `self.cursor.add(n)` is UB.
+    /// That means there are at least `n-1` bytes between `self.cursor` and `self.end`
+    /// and `self.cursor.add(n)` is either `self.end` or points to a valid byte.
     #[inline]
-    pub fn peek_ahead(&self, n: usize) -> Option<u8> {
-        // SAFETY: obtain a potentially OOB pointer that is later compared against the `self.end`
-        // pointer.
-        let ptr = self.cursor.wrapping_add(n);
-        if ptr < self.end {
-            // SAFETY: bounds checked pointer dereference is safe
-            Some(unsafe { *ptr })
+    pub unsafe fn peek_ahead(&self, n: usize) -> Option<u8> {
+        debug_assert!(n <= self.len());
+        // SAFETY: by preconditions
+        let p = unsafe { self.cursor.add(n) };
+        if p < self.end {
+            // SAFETY: by preconditions, if this is not `self.end`,
+            // then it is safe to dereference
+            Some(unsafe { *p })
         } else {
             None
         }
     }
-    
+
     #[inline]
     pub fn peek_n<'b: 'a, U: TryFrom<&'a [u8]>>(&'b self, n: usize) -> Option<U> {
         // TODO: once we bump MSRC, use const generics to allow only [u8; N] reads
@@ -65,7 +73,7 @@ impl<'a> Bytes<'a> {
     /// Advance by 1, equivalent to calling `advance(1)`.
     ///
     /// # Safety
-    /// 
+    ///
     /// Caller must ensure that Bytes hasn't been advanced/bumped by more than [`Bytes::len()`].
     #[inline]
     pub unsafe fn bump(&mut self) {
@@ -75,7 +83,7 @@ impl<'a> Bytes<'a> {
     /// Advance cursor by `n`
     ///
     /// # Safety
-    /// 
+    ///
     /// Caller must ensure that Bytes hasn't been advanced/bumped by more than [`Bytes::len()`].
     #[inline]
     pub unsafe fn advance(&mut self, n: usize) {
@@ -104,7 +112,7 @@ impl<'a> Bytes<'a> {
     // TODO: this is an anti-pattern, should be removed
     /// Deprecated. Do not use!
     /// # Safety
-    /// 
+    ///
     /// Caller must ensure that `skip` is at most the number of advances (i.e., `bytes.advance(3)`
     /// implies a skip of at most 3).
     #[inline]
@@ -114,21 +122,21 @@ impl<'a> Bytes<'a> {
         self.commit();
         head
     }
-    
+
     #[inline]
     pub fn commit(&mut self) {
         self.start = self.cursor
     }
 
     /// # Safety
-    /// 
+    ///
     /// see [`Bytes::advance`] safety comment.
     #[inline]
     pub unsafe fn advance_and_commit(&mut self, n: usize) {
         self.advance(n);
         self.commit();
     }
-    
+
     #[inline]
     pub fn as_ptr(&self) -> *const u8 {
         self.cursor
@@ -138,14 +146,14 @@ impl<'a> Bytes<'a> {
     pub fn start(&self) -> *const u8 {
         self.start
     }
-    
+
     #[inline]
     pub fn end(&self) -> *const u8 {
         self.end
     }
-    
+
     /// # Safety
-    /// 
+    ///
     /// Must ensure invariant `bytes.start() <= ptr && ptr <= bytes.end()`.
     #[inline]
     pub unsafe fn set_cursor(&mut self, ptr: *const u8) {
