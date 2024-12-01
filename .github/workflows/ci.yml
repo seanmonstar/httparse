@@ -153,10 +153,10 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: 1.36.0
+          toolchain: 1.47.0
           override: true
 
-      # Only build, dev-dependencies don't compile on 1.36.0
+      # Only build, dev-dependencies don't compile on 1.47.0
       - name: Build
         uses: actions-rs/cargo@v1
         with:
@@ -179,11 +179,11 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: 1.36.0
+          toolchain: 1.47.0
           override: true
           target: aarch64-unknown-linux-gnu
 
-      # Only build, dev-dependencies don't compile on 1.36.0
+      # Only build, dev-dependencies don't compile on 1.47.0
       - name: Build
         uses: actions-rs/cargo@v1
         with:
