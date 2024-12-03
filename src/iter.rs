@@ -155,7 +155,7 @@ impl<'a> Bytes<'a> {
     }
 }
 
-impl<'a> AsRef<[u8]> for Bytes<'a> {
+impl AsRef<[u8]> for Bytes<'_> {
     #[inline]
     fn as_ref(&self) -> &[u8] {
         // SAFETY: not moving position at all, so it's safe
@@ -172,7 +172,7 @@ unsafe fn slice_from_ptr_range<'a>(start: *const u8, end: *const u8) -> &'a [u8]
     core::slice::from_raw_parts(start, end as usize - start as usize)
 }
 
-impl<'a> Iterator for Bytes<'a> {
+impl Iterator for Bytes<'_> {
     type Item = u8;
 
     #[inline]

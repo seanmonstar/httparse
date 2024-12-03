@@ -25,7 +25,7 @@
 //! `-C target_cpu=native` allows the detection to become compile time checks,
 //! making it *even* faster.
 
-use core::{fmt, result, str};
+use core::{fmt, mem, result, str};
 use core::mem::MaybeUninit;
 
 use crate::iter::Bytes;
@@ -375,7 +375,7 @@ impl ParserConfig {
     /// let result = httparse::ParserConfig::default()
     ///     .allow_space_before_first_header_name(true)
     ///     .parse_response(&mut response, buf);
-
+    ///
     /// assert_eq!(result, Ok(httparse::Status::Complete(buf.len())));
     /// assert_eq!(response.version.unwrap(), 1);
     /// assert_eq!(response.code.unwrap(), 200);
@@ -580,7 +580,7 @@ impl<'h, 'b> Request<'h, 'b> {
     }
 
     fn parse_with_config(&mut self, buf: &'b [u8], config: &ParserConfig) -> Result<usize> {
-        let headers = core::mem::replace(&mut self.headers, &mut []);
+        let headers = mem::take(&mut self.headers);
 
         /* SAFETY: see `parse_headers_iter_uninit` guarantees */
         unsafe {
@@ -683,7 +683,7 @@ impl<'h, 'b> Response<'h, 'b> {
     }
 
     fn parse_with_config(&mut self, buf: &'b [u8], config: &ParserConfig) -> Result<usize> {
-        let headers = core::mem::replace(&mut self.headers, &mut []);
+        let headers = mem::take(&mut self.headers);
 
         // SAFETY: see guarantees of [`parse_headers_iter_uninit`], which leaves no uninitialized
         // headers around. On failure, the original headers are restored.
@@ -779,7 +779,7 @@ pub struct Header<'a> {
     pub value: &'a [u8],
 }
 
-impl<'a> fmt::Debug for Header<'a> {
+impl fmt::Debug for Header<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut f = f.debug_struct("Header");
         f.field("name", &self.name);
@@ -967,10 +967,10 @@ pub fn parse_uri<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
             return Err(Error::Token);
         }
 
-        return Ok(Status::Complete(
+        Ok(Status::Complete(
             // SAFETY: all bytes up till `i` must have been `is_method_token` and therefore also utf-8.
             unsafe { str::from_utf8_unchecked(bytes.slice_skip(1)) },
-        ));
+        ))
     } else {
         Err(Error::Token)
     }
@@ -1071,9 +1071,9 @@ fn parse_headers_iter_uninit<'a>(
         num_headers: usize,
     }
 
-    impl<'r1, 'r2, 'a> Drop for ShrinkOnDrop<'r1, 'r2, 'a> {
+    impl Drop for ShrinkOnDrop<'_, '_, '_> {
         fn drop(&mut self) {
-            let headers = core::mem::replace(self.headers, &mut []);
+            let headers = mem::take(self.headers);
 
             /* SAFETY: num_headers is the number of initialized headers */
             let headers = unsafe { headers.get_unchecked_mut(..self.num_headers) };
@@ -1323,7 +1323,7 @@ pub fn parse_chunk_size(buf: &[u8])
                     return Err(InvalidChunkSize);
                 }
                 count += 1;
-                if cfg!(debug_assertions) && size > (core::u64::MAX / RADIX) {
+                if cfg!(debug_assertions) && size > (u64::MAX / RADIX) {
                     // actually unreachable!(), because count stops the loop at 15 digits before
                     // we can reach u64::MAX / RADIX == 0xfffffffffffffff, which requires 15 hex
                     // digits. This stops mirai reporting a false alarm regarding the `size *=
@@ -1338,7 +1338,7 @@ pub fn parse_chunk_size(buf: &[u8])
                     return Err(InvalidChunkSize);
                 }
                 count += 1;
-                if cfg!(debug_assertions) && size > (core::u64::MAX / RADIX) {
+                if cfg!(debug_assertions) && size > (u64::MAX / RADIX) {
                     return Err(InvalidChunkSize);
                 }
                 size *= RADIX;
@@ -1349,7 +1349,7 @@ pub fn parse_chunk_size(buf: &[u8])
                     return Err(InvalidChunkSize);
                 }
                 count += 1;
-                if cfg!(debug_assertions) && size > (core::u64::MAX / RADIX) {
+                if cfg!(debug_assertions) && size > (u64::MAX / RADIX) {
                     return Err(InvalidChunkSize);
                 }
                 size *= RADIX;
@@ -2057,7 +2057,7 @@ mod tests {
         assert_eq!(parse_chunk_size(b"567f8a\rfoo"), Err(crate::InvalidChunkSize));
         assert_eq!(parse_chunk_size(b"567f8a\rfoo"), Err(crate::InvalidChunkSize));
         assert_eq!(parse_chunk_size(b"567xf8a\r\n"), Err(crate::InvalidChunkSize));
-        assert_eq!(parse_chunk_size(b"ffffffffffffffff\r\n"), Ok(Status::Complete((18, std::u64::MAX))));
+        assert_eq!(parse_chunk_size(b"ffffffffffffffff\r\n"), Ok(Status::Complete((18, u64::MAX))));
         assert_eq!(parse_chunk_size(b"1ffffffffffffffff\r\n"), Err(crate::InvalidChunkSize));
         assert_eq!(parse_chunk_size(b"Affffffffffffffff\r\n"), Err(crate::InvalidChunkSize));
         assert_eq!(parse_chunk_size(b"fffffffffffffffff\r\n"), Err(crate::InvalidChunkSize));
