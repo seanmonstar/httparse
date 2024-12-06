@@ -109,7 +109,7 @@ impl<'a> Bytes<'a> {
     /// implies a skip of at most 3).
     #[inline]
     pub unsafe fn slice_skip(&mut self, skip: usize) -> &'a [u8] {
-        debug_assert!(self.cursor.sub(skip) >= self.start);
+        debug_assert!(skip <= self.cursor.offset_from(self.start) as usize);
         let head = slice_from_ptr_range(self.start, self.cursor.sub(skip));
         self.commit();
         head
