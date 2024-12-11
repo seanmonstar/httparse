@@ -851,18 +851,16 @@ pub fn parse_method<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
         Some(GET) => {
             // SAFETY: matched the ASCII string and boundary checked
             let method = unsafe {
-                bytes.advance(4);
-                let buf = bytes.slice_skip(1);
-                str::from_utf8_unchecked(buf)
+                bytes.advance_and_commit(4);
+                str::from_utf8_unchecked(&GET[..GET.len()-1])
             };
             Ok(Status::Complete(method))
         }
         Some(POST) if bytes.peek_ahead(4) == Some(b' ') => {
             // SAFETY: matched the ASCII string and boundary checked
             let method = unsafe {
-                bytes.advance(5);
-                let buf = bytes.slice_skip(1);
-                str::from_utf8_unchecked(buf)
+                bytes.advance_and_commit(5);
+                str::from_utf8_unchecked(&POST[..])
             };
             Ok(Status::Complete(method))
         }
