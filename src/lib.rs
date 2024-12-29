@@ -840,20 +840,23 @@ pub fn parse_method<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
     const POST: [u8; 4] = *b"POST";
     match bytes.peek_n::<[u8; 4]>(4) {
         Some(GET) => {
-            // SAFETY: matched the ASCII string and boundary checked
+            // SAFETY: we matched "GET " which has 4 bytes and is ASCII
             let method = unsafe {
-                bytes.advance(4);
-                let buf = bytes.slice_skip(1);
-                str::from_utf8_unchecked(buf)
+                bytes.advance(4); // advance cursor past "GET "
+                str::from_utf8_unchecked(bytes.slice_skip(1)) // "GET" without space
             };
             Ok(Status::Complete(method))
         }
-        Some(POST) if bytes.peek_ahead(4) == Some(b' ') => {
-            // SAFETY: matched the ASCII string and boundary checked
+        // SAFETY:
+        // If `bytes.peek_n...` returns a Some([u8; 4]),
+        // then we are assured that `bytes` contains at least 4 bytes.
+        // Thus `bytes.len() >= 4`,
+        // and it is safe to peek at byte 4 with `bytes.peek_ahead(4)`.
+        Some(POST) if unsafe { bytes.peek_ahead(4) } == Some(b' ') => {
+            // SAFETY: we matched "POST " which has 5 bytes
             let method = unsafe {
-                bytes.advance(5);
-                let buf = bytes.slice_skip(1);
-                str::from_utf8_unchecked(buf)
+                bytes.advance(5); // advance cursor past "POST "
+                str::from_utf8_unchecked(bytes.slice_skip(1)) // "POST" without space
             };
             Ok(Status::Complete(method))
         }
