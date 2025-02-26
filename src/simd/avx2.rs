@@ -51,7 +51,7 @@ unsafe fn match_url_char_32_avx(buf: &[u8]) -> usize {
 
     // unsigned comparison dat >= LOW
     //
-    // We create a new via `_mm256_max_epu8` which compares vectors `dat` and `LOW`
+    // `_mm256_max_epu8` creates a new vector by comparing vectors `dat` and `LOW`
     // and picks the max. values from each for all indices.
     // So if a byte in `dat` is <= 32, it'll be represented as 33
     // which is the smallest valid character.
@@ -67,8 +67,7 @@ unsafe fn match_url_char_32_avx(buf: &[u8]) -> usize {
 
     // We glue the both comparisons via `_mm256_andnot_si256`.
     //
-    // Since the representation of truthy/falsy differ in these comparisons,
-    // we cannot use 
+    // Since the representation of truthiness differ in these comparisons,
     // we are in need of bitwise NOT to convert valid characters of `del`.
     let bit = _mm256_andnot_si256(del, low);
     // This creates a bitmask from the most significant bit of each byte.
