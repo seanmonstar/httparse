@@ -631,6 +631,18 @@ impl<'h, 'b> Response<'h, 'b> {
         self.parse_with_config(buf, &ParserConfig::default())
     }
 
+    /// Try to parse a buffer of bytes into the Response,
+    /// except use an uninitialized slice of `Header`s.
+    ///
+    /// For more information, see `parse`
+    pub fn parse_with_uninit_headers(
+        &mut self,
+        buf: &'b [u8],
+        headers: &'h mut [MaybeUninit<Header<'b>>],
+    ) -> Result<usize> {
+        self.parse_with_config_and_uninit_headers(buf, &Default::default(), headers)
+    }
+
     fn parse_with_config(&mut self, buf: &'b [u8], config: &ParserConfig) -> Result<usize> {
         let headers = mem::take(&mut self.headers);
 
