@@ -99,11 +99,11 @@ struct Version (u32, u32, u32);
 
 impl Version {
     fn parse(s: &str) -> Result<Version, String> {
-        if !s.starts_with("rustc ") {
-            return Err(format!("unrecognized version string: {}", s));
-        }
-        let s = s.trim_start_matches("rustc ");
-        
+        let s = match s.strip_prefix("rustc ") {
+            Some(s) => s,
+            None => return Err(format!("unrecognized version string: {}", s)),
+        };
+
         let mut iter = s
             .split('.')
             .take(3)

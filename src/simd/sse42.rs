@@ -37,8 +37,7 @@ unsafe fn match_url_char_16_sse(buf: &[u8]) -> usize {
     let bit = _mm_andnot_si128(del, low);
     let res = _mm_movemask_epi8(bit) as u16;
 
-    // TODO: use .trailing_ones() once MSRV >= 1.46
-    (!res).trailing_zeros() as usize
+    res.trailing_ones() as usize
 }
 
 #[target_feature(enable = "sse4.2")]
@@ -79,8 +78,7 @@ unsafe fn match_header_value_char_16_sse(buf: &[u8]) -> usize {
     let bit = _mm_andnot_si128(del, _mm_or_si128(low, tab));
     let res = _mm_movemask_epi8(bit) as u16;
 
-    // TODO: use .trailing_ones() once MSRV >= 1.46
-    (!res).trailing_zeros() as usize
+    res.trailing_ones() as usize
 }
 
 #[test]

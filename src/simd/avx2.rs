@@ -74,10 +74,8 @@ unsafe fn match_url_char_32_avx(buf: &[u8]) -> usize {
     // Simply, we're converting a vector value to scalar value here.
     let res = _mm256_movemask_epi8(bit) as u32;
 
-    // Count trailing zeros to find the first encountered invalid character.
-    // Bitwise NOT is required once again to flip truthiness.
-    // TODO: use .trailing_ones() once MSRV >= 1.46
-    (!res).trailing_zeros() as usize
+    // Count trailing ones to find the first encountered invalid character.
+    res.trailing_ones() as usize
 }
 
 #[target_feature(enable = "avx2")]
@@ -138,10 +136,8 @@ unsafe fn match_header_value_char_32_avx(buf: &[u8]) -> usize {
     // Creates a scalar value from vector value.
     let res = _mm256_movemask_epi8(bit) as u32;
 
-    // Count trailing zeros to find the first encountered invalid character.
-    // Bitwise NOT is required once again to flip truthiness.
-    // TODO: use .trailing_ones() once MSRV >= 1.46
-    (!res).trailing_zeros() as usize
+    // Count trailing ones to find the first encountered invalid character.
+    res.trailing_ones() as usize
 }
 
 #[test]
