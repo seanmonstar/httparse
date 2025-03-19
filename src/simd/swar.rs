@@ -103,10 +103,9 @@ fn match_block(f: impl Fn(u8) -> bool, block: ByteBlock) -> usize {
     BLOCK_SIZE
 }
 
-// A const alternative to u64::from_ne_bytes to avoid bumping MSRV (1.36 => 1.44)
 // creates a u64 whose bytes are each equal to b
 const fn uniform_block(b: u8) -> usize {
-    (b as u64 *  0x01_01_01_01_01_01_01_01 /* [1_u8; 8] */) as usize
+    usize::from_ne_bytes([b; BLOCK_SIZE])
 }
 
 // A byte-wise range-check on an entire word/block,
