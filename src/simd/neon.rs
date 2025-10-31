@@ -182,9 +182,9 @@ unsafe fn offsetnz(x: uint8x16_t) -> u32 {
     if low != 0 {
         clz(low)
     } else if high != 0 {
-        return 8 + clz(high);
+        8 + clz(high)
     } else {
-        return 16;
+        16
     }
 }
 
