@@ -48,32 +48,22 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v5
 
       - name: Install Rust (${{ matrix.rust }})
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
           toolchain: ${{ matrix.rust }}
-          override: true
 
       - name: no_std
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --no-default-features
+        run: cargo build --no-default-features
 
       - name: Test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
+        run: cargo test
 
       - name: Test all benches
         if: matrix.benches
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --benches
+        run: cargo test --benches
 
   simd:
     name: SIMD ${{ matrix.target_feature }} on ${{ matrix.rust }}
@@ -96,72 +86,52 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v5
 
       - name: Install Rust (${{ matrix.rust }})
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
           toolchain: ${{ matrix.rust }}
-          override: true
 
       - name: Test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
         env:
           RUSTFLAGS: -C target_feature=${{ matrix.target_feature }}
           CARGO_CFG_HTTPARSE_DISABLE_SIMD_COMPILETIME: ${{ matrix.disable_compiletime }}
+        run: cargo test
 
   check_x86:
     name: check x86
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v5
 
       - name: Setup Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          target: i686-unknown-linux-musl
+          targets: i686-unknown-linux-musl
 
       - name: Test without SIMD
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --target i686-unknown-linux-musl
         env:
           CARGO_CFG_HTTPARSE_DISABLE_SIMD_COMPILETIME: 1
+        run: cargo test --target i686-unknown-linux-musl
 
       - name: Test
-
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --target i686-unknown-linux-musl
+        run: cargo test --target i686-unknown-linux-musl
 
   msrv_x64:
     name: msrv (x64)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v5
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: 1.47.0
-          override: true
+        uses: dtolnay/rust-toolchain@1.47.0
 
       # Only build, dev-dependencies don't compile on 1.47.0
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
+        run: cargo build
 
   # This tests that aarch64 gracefully fallbacks to SWAR if neon_intrinsics aren't available (<1.59)
   msrv_aarch64:
@@ -169,7 +139,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v5
 
       - name: Install cross-compiling dependencies
         run: |
@@ -177,24 +147,21 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Setup Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@1.47.0
         with:
-          profile: minimal
-          toolchain: 1.47.0
-          override: true
           target: aarch64-unknown-linux-gnu
 
       # Only build, dev-dependencies don't compile on 1.47.0
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --target aarch64-unknown-linux-gnu
+        run: cargo build --target aarch64-unknown-linux-gnu
 
   clippy_check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - name: Run clippy
         run: cargo clippy --all-targets --all-features
 
@@ -204,43 +171,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v5
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          profile: minimal
-          toolchain: nightly
           components: miri
-          override: true
 
       - name: Test
         run: cargo miri test
-  #
-  # mirai:
-  #   name: MIRAI static analysis
-  #   runs-on: ubuntu-latest
-  #
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v1
-  #
-  #     - name: Install Rust
-  #       uses: actions-rs/toolchain@v1
-  #       with:
-  #         profile: minimal
-  #         toolchain: nightly-2023-05-09
-  #         components: clippy, rustfmt, rustc-dev, rust-src, rust-std, llvm-tools-preview
-  #         override: true
-  #
-  #     - name: install mirai
-  #       run: cargo install --locked --git https://github.com/facebookexperimental/MIRAI/ mirai
-  #       env:
-  #         # MIRAI_FLAGS: --diag=(default|verify|library|paranoid)
-  #         MIRAI_FLAGS: --diag=default
-  #
-  #     - name: cargo mirai
-  #       run: cargo mirai --lib
 
   aarch64:
     name: Test aarch64 (neon)
@@ -249,15 +188,12 @@ jobs:
       CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v5
 
       - name: Setup Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          target: aarch64-unknown-linux-gnu
+          targets: aarch64-unknown-linux-gnu
 
       - name: Install QEMU and dependencies
         run: |

@@ -1,4 +1,4 @@
-#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(any(test, feature = "std")), no_std)]
 #![deny(
     missing_docs,
     clippy::missing_safety_doc,
@@ -1795,7 +1795,7 @@ mod tests {
         let mut headers = [EMPTY_HEADER; NUM_OF_HEADERS];
         let mut req = Request::new(&mut headers[..]);
         for i in 0..req_str.len() {
-            let status = req.parse(req_str[..i].as_bytes());
+            let status = req.parse(&req_str.as_bytes()[..i]);
             assert_eq!(
                 status,
                 Ok(Status::Partial),
