@@ -1,21 +1,24 @@
 mod swar;
 
-#[cfg(not(all(
-    httparse_simd,
-    any(
+#[cfg(any(
+    httparse_disable_simd,
+    miri,
+    not(feature = "std"),
+    not(any(
         target_arch = "x86",
         target_arch = "x86_64",
         all(
             target_arch = "aarch64",
-            httparse_simd_neon_intrinsics,
+            target_feature = "neon",
         )
-    ),
-)))]
+    ))
+))]
 pub use self::swar::*;
 
 #[cfg(all(
-    httparse_simd,
-    not(httparse_simd_target_feature_avx2),
+    not(any(httparse_disable_simd, miri)),
+    feature = "std",
+    not(target_feature = "avx2"),
     any(
         target_arch = "x86",
         target_arch = "x86_64",
@@ -24,10 +27,11 @@ pub use self::swar::*;
 mod sse42;
 
 #[cfg(all(
-    httparse_simd,
+    not(any(httparse_disable_simd, miri)),
+    feature = "std",
     any(
-        httparse_simd_target_feature_avx2,
-        not(httparse_simd_target_feature_sse42),
+        target_feature = "avx2",
+        not(target_feature = "sse4.2"),
     ),
     any(
         target_arch = "x86",
@@ -37,10 +41,11 @@ mod sse42;
 mod avx2;
 
 #[cfg(all(
-    httparse_simd,
+    not(any(httparse_disable_simd, miri)),
+    feature = "std",
     not(any(
-        httparse_simd_target_feature_sse42,
-        httparse_simd_target_feature_avx2,
+        target_feature = "sse4.2",
+        target_feature = "avx2",
     )),
     any(
         target_arch = "x86",
@@ -50,10 +55,11 @@ mod avx2;
 mod runtime;
 
 #[cfg(all(
-    httparse_simd,
+    not(any(httparse_disable_simd, miri)),
+    feature = "std",
     not(any(
-        httparse_simd_target_feature_sse42,
-        httparse_simd_target_feature_avx2,
+        target_feature = "sse4.2",
+        target_feature = "avx2",
     )),
     any(
         target_arch = "x86",
@@ -63,9 +69,10 @@ mod runtime;
 pub use self::runtime::*;
 
 #[cfg(all(
-    httparse_simd,
-    httparse_simd_target_feature_sse42,
-    not(httparse_simd_target_feature_avx2),
+    not(any(httparse_disable_simd, miri)),
+    feature = "std",
+    target_feature = "sse4.2",
+    not(target_feature = "avx2"),
     any(
         target_arch = "x86",
         target_arch = "x86_64",
@@ -79,21 +86,20 @@ mod sse42_compile_time {
 
     #[inline(always)]
     pub fn match_uri_vectored(b: &mut crate::iter::Bytes<'_>) {
-        // SAFETY: calls are guarded by a compile time feature check
-        unsafe { crate::simd::sse42::match_uri_vectored(b) }
+        unsafe { super::sse42::match_uri_vectored(b) }
     }
-    
+
     #[inline(always)]
     pub fn match_header_value_vectored(b: &mut crate::iter::Bytes<'_>) {
-        // SAFETY: calls are guarded by a compile time feature check
-        unsafe { crate::simd::sse42::match_header_value_vectored(b) }
+        unsafe { super::sse42::match_header_value_vectored(b) }
     }
 }
 
 #[cfg(all(
-    httparse_simd,
-    httparse_simd_target_feature_sse42,
-    not(httparse_simd_target_feature_avx2),
+    not(any(httparse_disable_simd, miri)),
+    feature = "std",
+    target_feature = "sse4.2",
+    not(target_feature = "avx2"),
     any(
         target_arch = "x86",
         target_arch = "x86_64",
@@ -102,8 +108,9 @@ mod sse42_compile_time {
 pub use self::sse42_compile_time::*;
 
 #[cfg(all(
-    httparse_simd,
-    httparse_simd_target_feature_avx2,
+    not(any(httparse_disable_simd, miri)),
+    feature = "std",
+    target_feature = "avx2",
     any(
         target_arch = "x86",
         target_arch = "x86_64",
@@ -117,20 +124,19 @@ mod avx2_compile_time {
 
     #[inline(always)]
     pub fn match_uri_vectored(b: &mut crate::iter::Bytes<'_>) {
-        // SAFETY: calls are guarded by a compile time feature check
-        unsafe { crate::simd::avx2::match_uri_vectored(b) }
+        unsafe { super::avx2::match_uri_vectored(b) }
     }
-    
+
     #[inline(always)]
     pub fn match_header_value_vectored(b: &mut crate::iter::Bytes<'_>) {
-        // SAFETY: calls are guarded by a compile time feature check
-        unsafe { crate::simd::avx2::match_header_value_vectored(b) }
+        unsafe { super::avx2::match_header_value_vectored(b) }
     }
 }
 
 #[cfg(all(
-    httparse_simd,
-    httparse_simd_target_feature_avx2,
+    not(any(httparse_disable_simd, miri)),
+    feature = "std",
+    target_feature = "avx2",
     any(
         target_arch = "x86",
         target_arch = "x86_64",
@@ -139,15 +145,17 @@ mod avx2_compile_time {
 pub use self::avx2_compile_time::*;
 
 #[cfg(all(
-    httparse_simd,
+    not(any(httparse_disable_simd, miri)),
+    feature = "std",
     target_arch = "aarch64",
-    httparse_simd_neon_intrinsics,
+    target_feature = "neon",
 ))]
 mod neon;
 
 #[cfg(all(
-    httparse_simd,
+    not(any(httparse_disable_simd, miri)),
+    feature = "std",
     target_arch = "aarch64",
-    httparse_simd_neon_intrinsics,
+    target_feature = "neon",
 ))]
 pub use self::neon::*;

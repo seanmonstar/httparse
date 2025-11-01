@@ -10,10 +10,10 @@ macro_rules! next {
 }
 
 macro_rules! expect {
-    ($bytes:ident.next() == $pat:pat => $ret:expr) => {
+    ($bytes:ident.next() == $pat:pat_param => $ret:expr) => {
         expect!(next!($bytes) => $pat |? $ret)
     };
-    ($e:expr => $pat:pat |? $ret:expr) => {
+    ($e:expr => $pat:pat_param |? $ret:expr) => {
         match $e {
             v@$pat => v,
             _ => return $ret
@@ -31,7 +31,7 @@ macro_rules! complete {
 }
 
 macro_rules! byte_map {
-    ($($p:pat)|+) => {{
+    ($($p:pat_param)|+) => {{
         const fn make_map() -> [bool; 256] {
             let mut ret = [false; 256];
             let mut i = 0;
