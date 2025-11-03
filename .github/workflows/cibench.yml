@@ -5,12 +5,13 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-C target-cpu=native"
 
 jobs:
   benchmark:
     name: Run benchmarks
     runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: "-C target-cpu=native"
     steps:
       - uses: actions/checkout@v5
         with:
@@ -41,7 +42,17 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        feature: [swar, sse42, avx2]
+        include:
+          - feature: runtime
+            rustflags: ""
+          - feature: swar
+            rustflags: "--cfg httparse_disable_simd"
+          - feature: sse4.2
+            rustflags: "-C target-feature=+sse4.2"
+          - feature: avx2
+            rustflags: "-C target-feature=+avx2"
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -57,17 +68,11 @@ jobs:
         run: |
           git checkout master
           cargo bench --bench parse -- --save-baseline master-${{ matrix.feature }}
-        env:
-          CARGO_CFG_HTTPARSE_DISABLE_SIMD: ${{ matrix.feature == 'swar' && '1' || '0' }}
-          RUSTFLAGS: ${{ matrix.feature != 'swar' && format('-C target-feature=+{0}', matrix.feature) || '' }}
 
       - name: Run benchmarks (PR)
         run: |
           git checkout ${{ github.event.pull_request.head.sha }}
           cargo bench --bench parse -- --save-baseline pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-${{ matrix.feature }}
-        env:
-          CARGO_CFG_HTTPARSE_DISABLE_SIMD: ${{ matrix.feature == 'swar' && '1' || '0' }}
-          RUSTFLAGS: ${{ matrix.feature != 'swar' && format('-C target-feature=+{0}', matrix.feature) || '' }}
 
       - name: Compare benchmarks
         run: |
@@ -78,7 +83,13 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        feature: [swar, neon]
+        include:
+          - feature: swar
+            rustflags: "--cfg httparse_disable_simd"
+          - feature: neon
+            rustflags: "-C target-feature=+neon"
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -94,17 +105,11 @@ jobs:
         run: |
           git checkout master
           cargo bench --bench parse -- --save-baseline master-aarch64-${{ matrix.feature }}
-        env:
-          CARGO_CFG_HTTPARSE_DISABLE_SIMD: ${{ matrix.feature == 'swar' && '1' || '0' }}
-          RUSTFLAGS: ${{ matrix.feature == 'neon' && '-C target-feature=+neon' || '' }}
 
       - name: Run benchmarks (PR)
         run: |
           git checkout ${{ github.event.pull_request.head.sha }}
           cargo bench --bench parse -- --save-baseline pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-aarch64-${{ matrix.feature }}
-        env:
-          CARGO_CFG_HTTPARSE_DISABLE_SIMD: ${{ matrix.feature == 'swar' && '1' || '0' }}
-          RUSTFLAGS: ${{ matrix.feature == 'neon' && '-C target-feature=+neon' || '' }}
 
       - name: Compare benchmarks
         run: |

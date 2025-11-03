@@ -9,8 +9,8 @@ documentation = "https://docs.rs/httparse"
 readme = "README.md"
 keywords = ["http", "parser", "no_std"]
 categories = ["network-programming", "no-std", "parser-implementations", "web-programming"]
-edition = "2018"
-build = "build.rs"
+edition = "2021"
+rust-version = "1.59"
 
 [features]
 default = ["std"]
@@ -34,8 +34,5 @@ opt-level = 3
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = [
-    'cfg(httparse_simd)',
-    'cfg(httparse_simd_target_feature_avx2)',
-    'cfg(httparse_simd_target_feature_sse42)',
-    'cfg(httparse_simd_neon_intrinsics)',
+    'cfg(httparse_disable_simd)',
 ] }
