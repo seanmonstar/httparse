@@ -208,23 +208,35 @@ impl<T> Status<T> {
 /// Parser configuration.
 #[derive(Clone, Debug, Default)]
 pub struct ParserConfig {
-    allow_spaces_after_header_name_in_responses: bool,
-    allow_obsolete_multiline_headers_in_responses: bool,
     allow_multiple_spaces_in_request_line_delimiters: bool,
     allow_multiple_spaces_in_response_status_delimiters: bool,
+    allow_spaces_after_header_name_in_requests: bool,
+    allow_spaces_after_header_name_in_responses: bool,
+    allow_obsolete_multiline_headers_in_requests: bool,
+    allow_obsolete_multiline_headers_in_responses: bool,
     allow_space_before_first_header_name: bool,
     ignore_invalid_headers_in_responses: bool,
     ignore_invalid_headers_in_requests: bool,
 }
 
 impl ParserConfig {
-    /// Sets whether spaces and tabs should be allowed after header names in responses.
-    pub fn allow_spaces_after_header_name_in_responses(
-        &mut self,
-        value: bool,
-    ) -> &mut Self {
-        self.allow_spaces_after_header_name_in_responses = value;
-        self
+    /// Sets whether multiple spaces are allowed as delimiters in start lines (request lines and
+    /// response status lines).
+    ///
+    /// # Background
+    ///
+    /// The [latest version of the HTTP/1.1 spec][spec] allows implementations to parse multiple
+    /// whitespace characters in place of the `SP` delimiters in the start line, including:
+    ///
+    /// > SP, HTAB, VT (%x0B), FF (%x0C), or bare CR
+    ///
+    /// This option relaxes the parser to allow for multiple spaces, but does *not* allow the
+    /// start line to contain the other mentioned whitespace characters.
+    ///
+    /// [spec]: https://httpwg.org/http-core/draft-ietf-httpbis-messaging-latest.html#rfc.section.3.p.3
+    pub fn allow_multiple_spaces_in_start_line_delimiters(&mut self, value: bool) -> &mut Self {
+        self.allow_multiple_spaces_in_request_line_delimiters(value)
+            .allow_multiple_spaces_in_response_status_delimiters(value)
     }
 
     /// Sets whether multiple spaces are allowed as delimiters in request lines.
@@ -274,7 +286,112 @@ impl ParserConfig {
         self.allow_multiple_spaces_in_response_status_delimiters
     }
 
-    /// Sets whether obsolete multiline headers should be allowed.
+    /// Sets whether spaces and tabs should be allowed after header names in requests and
+    /// responses.
+    pub fn allow_spaces_after_header_name(
+        &mut self,
+        value: bool,
+    ) -> &mut Self {
+        self.allow_spaces_after_header_name_in_requests(value)
+            .allow_spaces_after_header_name_in_responses(value)
+    }
+
+    /// Sets whether spaces and tabs should be allowed after header names in requests.
+    pub fn allow_spaces_after_header_name_in_requests(
+        &mut self,
+        value: bool,
+    ) -> &mut Self {
+        self.allow_spaces_after_header_name_in_requests = value;
+        self
+    }
+
+    /// Whether spaces and tabs should be allowed after header names in requests.
+    pub fn spaces_after_header_name_in_requests_are_allowed(&self) -> bool {
+        self.allow_spaces_after_header_name_in_requests
+    }
+
+    /// Sets whether spaces and tabs should be allowed after header names in responses.
+    pub fn allow_spaces_after_header_name_in_responses(
+        &mut self,
+        value: bool,
+    ) -> &mut Self {
+        self.allow_spaces_after_header_name_in_responses = value;
+        self
+    }
+
+    /// Whether spaces and tabs should be allowed after header names in responses.
+    pub fn spaces_after_header_name_in_responses_are_allowed(&self) -> bool {
+        self.allow_spaces_after_header_name_in_responses
+    }
+
+    /// Sets whether obsolete multiline headers should be allowed in requests and responses.
+    ///
+    /// This is an obsolete part of HTTP/1. Use at your own risk. If you are
+    /// building an HTTP library, the newlines (`\r` and `\n`) should be
+    /// replaced by spaces before handing the header value to the user.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// let buf = b"POST / HTTP/1.1\r\nFolded-Header: hello\r\n there \r\n\r\n";
+    /// let mut headers = [httparse::EMPTY_HEADER; 16];
+    /// let mut request = httparse::Request::new(&mut headers);
+    ///
+    /// let req = httparse::ParserConfig::default()
+    ///     .allow_obsolete_multiline_headers(true)
+    ///     .parse_request(&mut request, buf);
+    ///
+    /// assert_eq!(req, Ok(httparse::Status::Complete(buf.len())));
+    ///
+    /// assert_eq!(request.headers.len(), 1);
+    /// assert_eq!(request.headers[0].name, "Folded-Header");
+    /// assert_eq!(request.headers[0].value, b"hello\r\n there");
+    /// ```
+    pub fn allow_obsolete_multiline_headers(
+        &mut self,
+        value: bool,
+    ) -> &mut Self {
+        self.allow_obsolete_multiline_headers_in_requests(value)
+            .allow_obsolete_multiline_headers_in_responses(value)
+    }
+
+    /// Sets whether obsolete multiline headers should be allowed in requests.
+    ///
+    /// This is an obsolete part of HTTP/1. Use at your own risk. If you are
+    /// building an HTTP library, the newlines (`\r` and `\n`) should be
+    /// replaced by spaces before handing the header value to the user.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// let buf = b"POST / HTTP/1.1\r\nFolded-Header: hello\r\n there \r\n\r\n";
+    /// let mut headers = [httparse::EMPTY_HEADER; 16];
+    /// let mut request = httparse::Request::new(&mut headers);
+    ///
+    /// let req = httparse::ParserConfig::default()
+    ///     .allow_obsolete_multiline_headers_in_requests(true)
+    ///     .parse_request(&mut request, buf);
+    ///
+    /// assert_eq!(req, Ok(httparse::Status::Complete(buf.len())));
+    ///
+    /// assert_eq!(request.headers.len(), 1);
+    /// assert_eq!(request.headers[0].name, "Folded-Header");
+    /// assert_eq!(request.headers[0].value, b"hello\r\n there");
+    /// ```
+    pub fn allow_obsolete_multiline_headers_in_requests(
+        &mut self,
+        value: bool,
+    ) -> &mut Self {
+        self.allow_obsolete_multiline_headers_in_requests = value;
+        self
+    }
+
+    /// Whether obsolete multiline headers should be allowed in requests.
+    pub fn obsolete_multiline_headers_in_requests_are_allowed(&self) -> bool {
+        self.allow_obsolete_multiline_headers_in_requests
+    }
+
+    /// Sets whether obsolete multiline headers should be allowed in responses.
     ///
     /// This is an obsolete part of HTTP/1. Use at your own risk. If you are
     /// building an HTTP library, the newlines (`\r` and `\n`) should be
@@ -305,12 +422,12 @@ impl ParserConfig {
         self
     }
 
-    /// Whether obsolete multiline headers should be allowed.
+    /// Whether obsolete multiline headers should be allowed in responses.
     pub fn obsolete_multiline_headers_in_responses_are_allowed(&self) -> bool {
         self.allow_obsolete_multiline_headers_in_responses
     }
 
-    /// Sets whether white space before the first header is allowed
+    /// Sets whether white space before the first header is allowed.
     ///
     /// This is not allowed by spec but some browsers ignore it. So this an option for
     /// compatibility.
@@ -343,23 +460,46 @@ impl ParserConfig {
         self.allow_space_before_first_header_name
     }
 
-    /// Parses a request with the given config.
-    pub fn parse_request<'buf>(
-        &self,
-        request: &mut Request<'_, 'buf>,
-        buf: &'buf [u8],
-    ) -> Result<usize> {
-        request.parse_with_config(buf, self)
-    }
-
-    /// Parses a request with the given config and buffer for headers
-    pub fn parse_request_with_uninit_headers<'headers, 'buf>(
-        &self,
-        request: &mut Request<'headers, 'buf>,
-        buf: &'buf [u8],
-        headers: &'headers mut [MaybeUninit<Header<'buf>>],
-    ) -> Result<usize> {
-        request.parse_with_config_and_uninit_headers(buf, self, headers)
+    /// Sets whether invalid header lines should be silently ignored in requests and responses.
+    ///
+    /// This mimicks the behaviour of major browsers. You probably don't want this.
+    /// You should only want this if you are implementing a proxy whose main
+    /// purpose is to sit in front of browsers whose users access arbitrary content
+    /// which may be malformed, and they expect everything that works without
+    /// the proxy to keep working with the proxy.
+    ///
+    /// This option will prevent `ParserConfig::parse_request` and `ParserConfig::parse_response`
+    /// from returning an error encountered when parsing a header, except if the error was caused
+    /// by the character NUL (ASCII code 0), as Chrome specifically always reject
+    /// those, or if the error was caused by a lone character `\r`, as Firefox and
+    /// Chrome behave differently in that case.
+    ///
+    /// The ignorable errors are:
+    /// * empty header names;
+    /// * characters that are not allowed in header names, except for `\0` and `\r`;
+    /// * when `allow_spaces_after_header_name_in_requests` is not enabled,
+    ///   spaces and tabs between the header name and the colon in requests;
+    /// * when `allow_spaces_after_header_name_in_responses` is not enabled,
+    ///   spaces and tabs between the header name and the colon in responses;
+    /// * missing colon between header name and value;
+    /// * when `allow_obsolete_multiline_headers_in_requests` is not enabled,
+    ///   headers using obsolete line folding in requests.
+    /// * when `allow_obsolete_multiline_headers_in_responses` is not enabled,
+    ///   headers using obsolete line folding in responses.
+    /// * characters that are not allowed in header values except for `\0` and `\r`.
+    ///
+    /// If an ignorable error is encountered, the parser tries to find the next
+    /// line in the input to resume parsing the rest of the headers. As lines
+    /// contributing to a header using obsolete line folding always start
+    /// with whitespace, those will be ignored too. An error will be emitted
+    /// nonetheless if it finds `\0` or a lone `\r` while looking for the
+    /// next line.
+    pub fn ignore_invalid_headers(
+        &mut self,
+        value: bool,
+    ) -> &mut Self {
+        self.ignore_invalid_headers_in_requests(value)
+            .ignore_invalid_headers_in_responses(value)
     }
 
     /// Sets whether invalid header lines should be silently ignored in responses.
@@ -400,13 +540,67 @@ impl ParserConfig {
         self
     }
 
+    /// Whether invalid header lines should be silently ignored in responses.
+    pub fn invalid_headers_in_responses_are_ignored(&self) -> bool {
+        self.ignore_invalid_headers_in_responses
+    }
+
     /// Sets whether invalid header lines should be silently ignored in requests.
+    ///
+    /// You probably don't want this.
+    ///
+    /// This option will prevent `ParserConfig::parse_request` from returning
+    /// an error encountered when parsing a header, except if the error was caused
+    /// by the character NUL (ASCII code 0), as Chrome specifically always reject
+    /// those, or if the error was caused by a lone character `\r`, as Firefox and
+    /// Chrome behave differently in that case.
+    ///
+    /// The ignorable errors are:
+    /// * empty header names;
+    /// * characters that are not allowed in header names, except for `\0` and `\r`;
+    /// * when `allow_spaces_after_header_name_in_requests` is not enabled,
+    ///   spaces and tabs between the header name and the colon;
+    /// * missing colon between header name and value;
+    /// * when `allow_obsolete_multiline_headers_in_requests` is not enabled,
+    ///   headers using obsolete line folding.
+    /// * characters that are not allowed in header values except for `\0` and `\r`.
+    ///
+    /// If an ignorable error is encountered, the parser tries to find the next
+    /// line in the input to resume parsing the rest of the headers. As lines
+    /// contributing to a header using obsolete line folding always start
+    /// with whitespace, those will be ignored too. An error will be emitted
+    /// nonetheless if it finds `\0` or a lone `\r` while looking for the
+    /// next line.
     pub fn ignore_invalid_headers_in_requests(
         &mut self,
         value: bool,
     ) -> &mut Self {
         self.ignore_invalid_headers_in_requests = value;
         self
+    }
+
+    /// Whether invalid header lines should be silently ignored in requests.
+    pub fn invalid_headers_in_requests_are_ignored(&self) -> bool {
+        self.ignore_invalid_headers_in_requests
+    }
+
+    /// Parses a request with the given config.
+    pub fn parse_request<'buf>(
+        &self,
+        request: &mut Request<'_, 'buf>,
+        buf: &'buf [u8],
+    ) -> Result<usize> {
+        request.parse_with_config(buf, self)
+    }
+
+    /// Parses a request with the given config and buffer for headers
+    pub fn parse_request_with_uninit_headers<'headers, 'buf>(
+        &self,
+        request: &mut Request<'headers, 'buf>,
+        buf: &'buf [u8],
+        headers: &'headers mut [MaybeUninit<Header<'buf>>],
+    ) -> Result<usize> {
+        request.parse_with_config_and_uninit_headers(buf, self, headers)
     }
 
     /// Parses a response with the given config.
@@ -504,8 +698,8 @@ impl<'h, 'b> Request<'h, 'b> {
             &mut headers,
             &mut bytes,
             &HeaderParserConfig {
-                allow_spaces_after_header_name: false,
-                allow_obsolete_multiline_headers: false,
+                allow_spaces_after_header_name: config.allow_spaces_after_header_name_in_requests,
+                allow_obsolete_multiline_headers: config.allow_obsolete_multiline_headers_in_requests,
                 allow_space_before_first_header_name: config.allow_space_before_first_header_name,
                 ignore_invalid_headers: config.ignore_invalid_headers_in_requests
             },
@@ -1867,6 +2061,23 @@ mod tests {
     }
 
     #[test]
+    fn test_allow_request_with_whitespace_between_header_name_and_colon() {
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut request = Request::new(&mut headers[..]);
+        let result = crate::ParserConfig::default()
+            .allow_spaces_after_header_name_in_requests(true)
+            .parse_request(&mut request, REQUEST_WITH_WHITESPACE_BETWEEN_HEADER_NAME_AND_COLON);
+
+        assert_eq!(result, Ok(Status::Complete(36)));
+        assert_eq!(request.method.unwrap(), "GET");
+        assert_eq!(request.path.unwrap(), "/");
+        assert_eq!(request.version.unwrap(), 1);
+        assert_eq!(request.headers.len(), 1);
+        assert_eq!(request.headers[0].name, "Host");
+        assert_eq!(request.headers[0].value, &b"localhost"[..]);
+    }
+
+    #[test]
     fn test_ignore_header_line_with_whitespaces_after_header_name_in_request() {
         let mut headers = [EMPTY_HEADER; 2];
         let mut request = Request::new(&mut headers[..]);
@@ -1991,6 +2202,122 @@ mod tests {
         assert_eq!(response.headers.len(), 1);
         assert_eq!(response.headers[0].name, "Line-Folded-Header");
         assert_eq!(response.headers[0].value, &b""[..]);
+    }
+
+    static REQUEST_WITH_OBSOLETE_LINE_FOLDING_AT_START: &[u8] =
+        b"GET / HTTP/1.1\r\nLine-Folded-Header: \r\n   \r\n hello there\r\n\r\n";
+
+    #[test]
+    fn test_forbid_request_with_obsolete_line_folding_at_start() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut request = Request::new(&mut headers[..]);
+        let result = request.parse(REQUEST_WITH_OBSOLETE_LINE_FOLDING_AT_START);
+
+        assert_eq!(result, Err(crate::Error::HeaderName));
+    }
+
+    #[test]
+    fn test_allow_request_with_obsolete_line_folding_at_start() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut request = Request::new(&mut headers[..]);
+        let result = crate::ParserConfig::default()
+            .allow_obsolete_multiline_headers_in_requests(true)
+            .parse_request(&mut request, REQUEST_WITH_OBSOLETE_LINE_FOLDING_AT_START);
+
+        assert_eq!(result, Ok(Status::Complete(REQUEST_WITH_OBSOLETE_LINE_FOLDING_AT_START.len())));
+        assert_eq!(request.method.unwrap(), "GET");
+        assert_eq!(request.path.unwrap(), "/");
+        assert_eq!(request.version.unwrap(), 1);
+        assert_eq!(request.headers.len(), 1);
+        assert_eq!(request.headers[0].name, "Line-Folded-Header");
+        assert_eq!(request.headers[0].value, &b"hello there"[..]);
+    }
+
+    static REQUEST_WITH_OBSOLETE_LINE_FOLDING_AT_END: &[u8] =
+        b"GET / HTTP/1.1\r\nLine-Folded-Header: hello there\r\n   \r\n \r\n\r\n";
+
+    #[test]
+    fn test_forbid_request_with_obsolete_line_folding_at_end() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut request = Request::new(&mut headers[..]);
+        let result = request.parse(REQUEST_WITH_OBSOLETE_LINE_FOLDING_AT_END);
+
+        assert_eq!(result, Err(crate::Error::HeaderName));
+    }
+
+    #[test]
+    fn test_allow_request_with_obsolete_line_folding_at_end() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut request = Request::new(&mut headers[..]);
+        let result = crate::ParserConfig::default()
+            .allow_obsolete_multiline_headers_in_requests(true)
+            .parse_request(&mut request, REQUEST_WITH_OBSOLETE_LINE_FOLDING_AT_END);
+
+        assert_eq!(result, Ok(Status::Complete(REQUEST_WITH_OBSOLETE_LINE_FOLDING_AT_END.len())));
+        assert_eq!(request.method.unwrap(), "GET");
+        assert_eq!(request.path.unwrap(), "/");
+        assert_eq!(request.version.unwrap(), 1);
+        assert_eq!(request.headers.len(), 1);
+        assert_eq!(request.headers[0].name, "Line-Folded-Header");
+        assert_eq!(request.headers[0].value, &b"hello there"[..]);
+    }
+
+    static REQUEST_WITH_OBSOLETE_LINE_FOLDING_IN_MIDDLE: &[u8] =
+        b"GET / HTTP/1.1\r\nLine-Folded-Header: hello  \r\n \r\n there\r\n\r\n";
+
+    #[test]
+    fn test_forbid_request_with_obsolete_line_folding_in_middle() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut request = Request::new(&mut headers[..]);
+        let result = request.parse(REQUEST_WITH_OBSOLETE_LINE_FOLDING_IN_MIDDLE);
+
+        assert_eq!(result, Err(crate::Error::HeaderName));
+    }
+
+    #[test]
+    fn test_allow_request_with_obsolete_line_folding_in_middle() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut request = Request::new(&mut headers[..]);
+        let result = crate::ParserConfig::default()
+            .allow_obsolete_multiline_headers_in_requests(true)
+            .parse_request(&mut request, REQUEST_WITH_OBSOLETE_LINE_FOLDING_IN_MIDDLE);
+
+        assert_eq!(result, Ok(Status::Complete(REQUEST_WITH_OBSOLETE_LINE_FOLDING_IN_MIDDLE.len())));
+        assert_eq!(request.method.unwrap(), "GET");
+        assert_eq!(request.path.unwrap(), "/");
+        assert_eq!(request.version.unwrap(), 1);
+        assert_eq!(request.headers.len(), 1);
+        assert_eq!(request.headers[0].name, "Line-Folded-Header");
+        assert_eq!(request.headers[0].value, &b"hello  \r\n \r\n there"[..]);
+    }
+
+    static REQUEST_WITH_OBSOLETE_LINE_FOLDING_IN_EMPTY_HEADER: &[u8] =
+        b"GET / HTTP/1.1\r\nLine-Folded-Header:   \r\n \r\n \r\n\r\n";
+
+    #[test]
+    fn test_forbid_request_with_obsolete_line_folding_in_empty_header() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut request = Request::new(&mut headers[..]);
+        let result = request.parse(REQUEST_WITH_OBSOLETE_LINE_FOLDING_IN_EMPTY_HEADER);
+
+        assert_eq!(result, Err(crate::Error::HeaderName));
+    }
+
+    #[test]
+    fn test_allow_request_with_obsolete_line_folding_in_empty_header() {
+        let mut headers = [EMPTY_HEADER; 1];
+        let mut request = Request::new(&mut headers[..]);
+        let result = crate::ParserConfig::default()
+            .allow_obsolete_multiline_headers_in_requests(true)
+            .parse_request(&mut request, REQUEST_WITH_OBSOLETE_LINE_FOLDING_IN_EMPTY_HEADER);
+
+        assert_eq!(result, Ok(Status::Complete(REQUEST_WITH_OBSOLETE_LINE_FOLDING_IN_EMPTY_HEADER.len())));
+        assert_eq!(request.method.unwrap(), "GET");
+        assert_eq!(request.path.unwrap(), "/");
+        assert_eq!(request.version.unwrap(), 1);
+        assert_eq!(request.headers.len(), 1);
+        assert_eq!(request.headers[0].name, "Line-Folded-Header");
+        assert_eq!(request.headers[0].value, &b""[..]);
     }
 
     #[test]
