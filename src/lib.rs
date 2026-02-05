@@ -545,10 +545,13 @@ impl<'h, 'b> Request<'h, 'b> {
             }
         }
     }
-
     /// Try to parse a buffer of bytes into the Request.
     ///
     /// Returns byte offset in `buf` to start of HTTP body.
+    ///
+    /// # Warning
+    /// In streaming code, if this returns `Status::Partial`, avoid retry loops
+    /// on a growing buffer without size/time limits; CPU usage may grow fast.
     pub fn parse(&mut self, buf: &'b [u8]) -> Result<usize> {
         self.parse_with_config(buf, &Default::default())
     }
@@ -625,8 +628,11 @@ impl<'h, 'b> Response<'h, 'b> {
             headers,
         }
     }
-
     /// Try to parse a buffer of bytes into this `Response`.
+    ///
+    /// # Warning
+    /// In streaming code, if this returns `Status::Partial`, avoid retry loops
+    /// on a growing buffer without size/time limits; CPU usage may grow fast.
     pub fn parse(&mut self, buf: &'b [u8]) -> Result<usize> {
         self.parse_with_config(buf, &ParserConfig::default())
     }
