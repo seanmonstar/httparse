@@ -2017,6 +2017,14 @@ mod tests {
         assert_eq!(parse_chunk_size(b"fffffffffffffffff\r\n"), Err(crate::InvalidChunkSize));
     }
 
+    #[test]
+    fn chunk_size_bare_lf() {
+        assert_eq!(parse_chunk_size(b"0\n"), Err(crate::InvalidChunkSize));
+        assert_eq!(parse_chunk_size(b"f \n"), Err(crate::InvalidChunkSize));
+        assert_eq!(parse_chunk_size(b"f;foo=bar\n"), Ok(Status::Partial));
+        assert_eq!(parse_chunk_size(b"f;foo=\"bar\"\n"), Ok(Status::Partial));
+    }
+
     static RESPONSE_WITH_MULTIPLE_SPACE_DELIMITERS: &[u8] =
         b"HTTP/1.1   200  OK\r\n\r\n";
 
