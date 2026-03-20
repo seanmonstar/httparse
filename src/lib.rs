@@ -1298,6 +1298,8 @@ pub fn parse_chunk_size(buf: &[u8])
                 size *= RADIX;
                 size += ((b | 0x20) + 10 - b'a') as u64;
             }
+            // A chunk size must have at least one hex digit.
+            _ if count < 1 => return Err(InvalidChunkSize),
             b'\r' => {
                 match next!(bytes) {
                     b'\n' => break,
@@ -1314,14 +1316,21 @@ pub fn parse_chunk_size(buf: &[u8])
             b'\t' | b' ' if !in_ext && !in_chunk_size => {}
             // LWS can follow the chunk size, but no more digits can come
             b'\t' | b' ' if in_chunk_size => in_chunk_size = false,
-            // We allow any arbitrary octet once we are in the extension, since
-            // they all get ignored anyway. According to the HTTP spec, valid
-            // extensions would have a more strict syntax:
-            //     (token ["=" (token | quoted-string)])
-            // but we gain nothing by rejecting an otherwise valid chunk size.
-            _ if in_ext => {}
-            // Finally, if we aren't in the extension and we're reading any
-            // other octet, the chunk size line is invalid!
+            // We allow any arbitrary non-control octet once we are in the extension,
+            // since they all get ignored anyway. According to the HTTP spec,
+            // valid extensions would have a more strict syntax:
+            //     (token ["=" (token | quoted-string)]).
+            //
+            // However, it is *not* safe to allow arbitrary control characters
+            // here.  Old versions of Google Frontend, Akamai Global Host, and
+            // Apache Traffic Server (ATS) considered a bare '\n' to end the extension
+            // and forwarded it unchainged.  If a server allows '\n' inside a chunk
+            // extension and is behind one of these, the combination is vulnerable
+            // to request smuggling.  If a client allows '\n' inside a chunk extension
+            // and is in front of one of these, the combination is vulnerable to
+            // response splitting.  Google Frontend and Akamai Global Host
+            // are cloud-only, but old ATS versions may still exist in the wild.
+            b'\t' | b' ' ..= b'~' | b'\x80' ..= b'\xFF' if in_ext => {}
             _ => return Err(InvalidChunkSize),
         }
     }
@@ -2004,6 +2013,19 @@ mod tests {
         assert_eq!(parse_chunk_size(b"1ffffffffffffffff\r\n"), Err(crate::InvalidChunkSize));
         assert_eq!(parse_chunk_size(b"Affffffffffffffff\r\n"), Err(crate::InvalidChunkSize));
         assert_eq!(parse_chunk_size(b"fffffffffffffffff\r\n"), Err(crate::InvalidChunkSize));
+    }
+
+    #[test]
+    fn chunk_size_no_hex_digits() {
+        assert_eq!(parse_chunk_size(b"\r\n"), Err(crate::InvalidChunkSize));
+    }
+
+    #[test]
+    fn chunk_size_bare_lf() {
+        assert_eq!(parse_chunk_size(b"0\n"), Err(crate::InvalidChunkSize));
+        assert_eq!(parse_chunk_size(b"f \n"), Err(crate::InvalidChunkSize));
+        assert_eq!(parse_chunk_size(b"f;foo=bar\n"), Err(crate::InvalidChunkSize));
+        assert_eq!(parse_chunk_size(b"f;foo=\"bar\"\n"), Err(crate::InvalidChunkSize));
     }
 
     static RESPONSE_WITH_MULTIPLE_SPACE_DELIMITERS: &[u8] =
