@@ -1309,6 +1309,8 @@ pub fn parse_chunk_size(buf: &[u8])
                 size *= RADIX;
                 size += (b + 10 - b'A') as u64;
             }
+            // A chunk size must have at least one hex digit.
+            _ if count < 1 => return Err(InvalidChunkSize),
             b'\r' => {
                 match next!(bytes) {
                     b'\n' => break,
@@ -2026,7 +2028,7 @@ mod tests {
 
     #[test]
     fn chunk_size_no_hex_digits() {
-        assert_eq!(parse_chunk_size(b"\r\n"), Ok(Status::Complete((2, 0))));
+        assert_eq!(parse_chunk_size(b"\r\n"), Err(crate::InvalidChunkSize));
     }
 
     #[test]
