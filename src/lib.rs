@@ -1287,7 +1287,7 @@ pub fn parse_chunk_size(buf: &[u8])
                 size *= RADIX;
                 size += (b - b'0') as u64;
             },
-            b'a' ..= b'f' if in_chunk_size => {
+            b'a' ..= b'f' | b'A' ..= b'F' if in_chunk_size => {
                 if count > 15 {
                     return Err(InvalidChunkSize);
                 }
@@ -1296,18 +1296,7 @@ pub fn parse_chunk_size(buf: &[u8])
                     return Err(InvalidChunkSize);
                 }
                 size *= RADIX;
-                size += (b + 10 - b'a') as u64;
-            }
-            b'A' ..= b'F' if in_chunk_size => {
-                if count > 15 {
-                    return Err(InvalidChunkSize);
-                }
-                count += 1;
-                if cfg!(debug_assertions) && size > (u64::MAX / RADIX) {
-                    return Err(InvalidChunkSize);
-                }
-                size *= RADIX;
-                size += (b + 10 - b'A') as u64;
+                size += ((b | 0x20) + 10 - b'a') as u64;
             }
             b'\r' => {
                 match next!(bytes) {
