@@ -2025,6 +2025,11 @@ mod tests {
     }
 
     #[test]
+    fn chunk_size_no_hex_digits() {
+        assert_eq!(parse_chunk_size(b"\r\n"), Ok(Status::Complete((2, 0))));
+    }
+
+    #[test]
     fn chunk_size_bare_lf() {
         assert_eq!(parse_chunk_size(b"0\n"), Err(crate::InvalidChunkSize));
         assert_eq!(parse_chunk_size(b"f \n"), Err(crate::InvalidChunkSize));
