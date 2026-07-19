@@ -1102,6 +1102,16 @@ fn parse_headers_iter_uninit<'a>(
                             break;
                         }
                     }
+                    // A line consisting only of whitespace has no header to parse. Falling
+                    // through to `continue 'headers` here would let this loop's own CR/LF
+                    // check (above) treat it as the blank line terminating the header
+                    // section, silently discarding any real headers that follow in the
+                    // buffer.
+                    match bytes.peek() {
+                        None => return Ok(Status::Partial),
+                        Some(b'\r') | Some(b'\n') => break 'header Error::HeaderName,
+                        _ => {}
+                    }
                     bytes.slice();
                     continue 'headers;
                 } else {
@@ -2717,6 +2727,52 @@ mod tests {
         assert_eq!(response.headers.len(), 1);
         assert_eq!(response.headers[0].name, "Space-Before-Header");
         assert_eq!(response.headers[0].value, &b"hello there"[..]);
+    }
+
+    // Regression test: a line consisting only of whitespace (no header name/value follows before
+    // the line terminator) must not be silently treated as the blank line ending the header
+    // section -- that would discard every subsequent header from the parsed result while leaving
+    // their bytes unconsumed in the buffer for the caller to misinterpret as body/next-request
+    // data. This is the whitespace-only-line degenerate case that
+    // `test_allow_response_response_with_space_before_first_header` (above) never exercises, since
+    // its fixture always has real header content after the leading space.
+    #[test]
+    fn test_allow_space_before_first_header_name_rejects_whitespace_only_line() {
+        const REQUEST_WITH_WHITESPACE_ONLY_FIRST_LINE: &[u8] =
+            b"GET / HTTP/1.1\r\n \r\nHost: example.com\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 16];
+        let mut req = Request::new(&mut headers[..]);
+        let result = crate::ParserConfig::default()
+            .allow_space_before_first_header_name(true)
+            .parse_request(&mut req, REQUEST_WITH_WHITESPACE_ONLY_FIRST_LINE);
+
+        assert_eq!(result, Err(crate::Error::HeaderName));
+
+        const RESPONSE_WITH_WHITESPACE_ONLY_FIRST_LINE: &[u8] =
+            b"HTTP/1.1 200 OK\r\n \r\nContent-Length: 500\r\n\r\n";
+
+        let mut headers = [EMPTY_HEADER; 16];
+        let mut resp = Response::new(&mut headers[..]);
+        let result = crate::ParserConfig::default()
+            .allow_space_before_first_header_name(true)
+            .parse_response(&mut resp, RESPONSE_WITH_WHITESPACE_ONLY_FIRST_LINE);
+
+        assert_eq!(result, Err(crate::Error::HeaderName));
+    }
+
+    // The fix must not regress the streaming/incremental case: a buffer that ends right after the
+    // whitespace run (before the caller has fed the byte that would decide whitespace-only vs a
+    // real header) must return `Partial`, not error or complete prematurely.
+    #[test]
+    fn test_allow_space_before_first_header_name_partial_after_whitespace() {
+        let mut headers = [EMPTY_HEADER; 16];
+        let mut req = Request::new(&mut headers[..]);
+        let result = crate::ParserConfig::default()
+            .allow_space_before_first_header_name(true)
+            .parse_request(&mut req, b"GET / HTTP/1.1\r\n ");
+
+        assert_eq!(result, Ok(Status::Partial));
     }
 
     #[test]
