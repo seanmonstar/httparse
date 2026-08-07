@@ -747,6 +747,28 @@ impl fmt::Debug for Header<'_> {
     }
 }
 
+impl<'a> Header<'a> {
+    /// Case-insensitively compares this header's name against a target string or byte slice.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let header = httparse::Header { name: "User-Agent", value: b"Mozilla/5.0" };
+    /// assert!(header.name_eq_ignore_case("user-agent"));
+    /// assert!(header.name_eq_ignore_case(b"USER-AGENT"));
+    /// assert!(!header.name_eq_ignore_case("host"));
+    /// ```
+    #[inline]
+    pub fn name_eq_ignore_case<T: ?Sized + AsRef<[u8]>>(&self, target: &T) -> bool {
+        let name = self.name.as_bytes();
+        let target = target.as_ref();
+        if name.len() != target.len() {
+            return false;
+        }
+        name.eq_ignore_ascii_case(target)
+    }
+}
+
 /// An empty header, useful for constructing a `Header` array to pass in for
 /// parsing.
 ///
@@ -2779,5 +2801,18 @@ mod tests {
         let result = crate::ParserConfig::default().parse_request(&mut request, b"GET /test?post=I\xE2msorryIforkedyou HTTP/1.1\r\nHost: example.org\r\n\r\n");
 
         assert_eq!(result, Err(crate::Error::Token));
+    }
+
+    #[test]
+    fn test_header_name_eq_ignore_case() {
+        let header = super::Header {
+            name: "User-Agent",
+            value: b"Mozilla/5.0",
+        };
+        assert!(header.name_eq_ignore_case("user-agent"));
+        assert!(header.name_eq_ignore_case("USER-AGENT"));
+        assert!(header.name_eq_ignore_case(b"User-Agent"));
+        assert!(!header.name_eq_ignore_case("host"));
+        assert!(!header.name_eq_ignore_case("user-agents"));
     }
 }
