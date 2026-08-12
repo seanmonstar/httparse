@@ -88,7 +88,7 @@ pub(crate) fn is_header_name_token(b: u8) -> bool {
 
 
 static HEADER_VALUE_MAP: [bool; 256] = byte_map!(
-    b'\t' | b' '..=0x7e | 0x80..=0xFF
+    b'\t' | b' '..=0x7e | 0x80..=0xFF | 0x0B..=0x0C
 );
 
 
@@ -2779,5 +2779,51 @@ mod tests {
         let result = crate::ParserConfig::default().parse_request(&mut request, b"GET /test?post=I\xE2msorryIforkedyou HTTP/1.1\r\nHost: example.org\r\n\r\n");
 
         assert_eq!(result, Err(crate::Error::Token));
+    }
+
+    static RESPONSE_WITH_VERTICAL_TAB_IN_HEADER: &[u8] =
+        b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Security-Policy: img-src http://example.com\x0Bhttp://example2.com;\r\n\r\n<html><body>Hello CSP</body></html>\n";
+
+    #[test]
+    fn test_vertical_tab_character_in_headers() {
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut response = Response::new(&mut headers[..]);
+        let result = response.parse(RESPONSE_WITH_VERTICAL_TAB_IN_HEADER);
+
+        assert_eq!(
+            result,
+            Ok(Status::Complete(118))
+        );
+        assert_eq!(response.version.unwrap(), 1);
+        assert_eq!(response.code.unwrap(), 200);
+        assert_eq!(response.reason.unwrap(), "OK");
+        assert_eq!(response.headers.len(), 2);
+        assert_eq!(response.headers[0].name, "Content-Type");
+        assert_eq!(response.headers[0].value, &b"text/html"[..]);
+        assert_eq!(response.headers[1].name, "Content-Security-Policy");
+        assert_eq!(response.headers[1].value, &b"img-src http://example.com\x0Bhttp://example2.com;"[..]);
+    }
+
+    static RESPONSE_WITH_FORM_FEED_IN_HEADER: &[u8] =
+        b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Security-Policy: img-src http://example.com\x0Chttp://example2.com;\r\n\r\n<html><body>Hello CSP</body></html>\n";
+
+    #[test]
+    fn test_form_feed_character_in_headers() {
+        let mut headers = [EMPTY_HEADER; 2];
+        let mut response = Response::new(&mut headers[..]);
+        let result = response.parse(RESPONSE_WITH_FORM_FEED_IN_HEADER);
+
+        assert_eq!(
+            result,
+            Ok(Status::Complete(118))
+        );
+        assert_eq!(response.version.unwrap(), 1);
+        assert_eq!(response.code.unwrap(), 200);
+        assert_eq!(response.reason.unwrap(), "OK");
+        assert_eq!(response.headers.len(), 2);
+        assert_eq!(response.headers[0].name, "Content-Type");
+        assert_eq!(response.headers[0].value, &b"text/html"[..]);
+        assert_eq!(response.headers[1].name, "Content-Security-Policy");
+        assert_eq!(response.headers[1].value, &b"img-src http://example.com\x0Chttp://example2.com;"[..]);
     }
 }

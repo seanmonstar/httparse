@@ -105,7 +105,11 @@ unsafe fn match_header_value_char_32_avx(buf: &[u8]) -> usize {
 
     let ptr = buf.as_ptr();
 
-    // %x09 %x20-%x7e %x80-%xff
+    // %x0B-%x0C %x09 %x20-%x7e %x80-%xff
+    // Create a vector full of horizontal tab (\v) (0x0B) characters.
+    let VERTICAL_TAB: __m256i = _mm256_set1_epi8(0x0B);
+    // Create a vector full of horizontal tab (\f) (0x0C) characters.
+    let FORM_FEED: __m256i = _mm256_set1_epi8(0x0C);
     // Create a vector full of horizontal tab (\t) (0x09) characters.
     let TAB: __m256i = _mm256_set1_epi8(0x09);
     // Create a vector full of DEL (0x7f) characters.
@@ -121,6 +125,10 @@ unsafe fn match_header_value_char_32_avx(buf: &[u8]) -> usize {
     // Same as what we do in `match_url_char_32_avx`.
     // This time the lower threshold is set to space character though.
     let low = _mm256_cmpeq_epi8(_mm256_max_epu8(dat, LOW), dat);
+    // Check if `dat` includes `FORM FEED` characters.
+    let form_feed = _mm256_cmpeq_epi8(dat, FORM_FEED);
+    // Check if `dat` includes `VERTICAL TAB` characters.
+    let vertical_tab = _mm256_cmpeq_epi8(dat, VERTICAL_TAB);
     // Check if `dat` includes `TAB` characters.
     let tab = _mm256_cmpeq_epi8(dat, TAB);
     // Check if `dat` includes `DEL` characters.
@@ -130,8 +138,8 @@ unsafe fn match_header_value_char_32_avx(buf: &[u8]) -> usize {
     // to connect `low` and `tab` but flip bits of `del`.
     //
     // In the end, this is simply:
-    // ~del & (low | tab)
-    let bit = _mm256_andnot_si256(del, _mm256_or_si256(low, tab));
+    // ~del & (low | form_feed | vertical_tab | tab)
+    let bit = _mm256_andnot_si256(del, _mm256_or_si256(low, _mm256_or_si256(form_feed, _mm256_or_si256(vertical_tab, tab))));
     // This creates a bitmask from the most significant bit of each byte.
     // Creates a scalar value from vector value.
     let res = _mm256_movemask_epi8(bit) as u32;
