@@ -20,7 +20,7 @@ pub fn match_header_name_vectored(bytes: &mut Bytes) {
 #[inline]
 pub fn match_header_value_vectored(bytes: &mut Bytes) {
     while bytes.as_ref().len() >= 16 {
-        // SAFETY: ensured that there are at least 16 bytes remaining 
+        // SAFETY: ensured that there are at least 16 bytes remaining
         unsafe {
             let advance = match_header_value_char_16_neon(bytes.as_ref().as_ptr());
             bytes.advance(advance);
@@ -142,9 +142,11 @@ unsafe fn match_header_value_char_16_neon(ptr: *const u8) -> usize {
     // Check that b' ' <= and b != 127 or b == 9
     let result = vcleq_u8(vdupq_n_u8(b' '), input);
 
-    // Allow tab
+    // Allow vertical tab, form feed and tab
+    let vertical_tab = vceqq_u8(input, vdupq_n_u8(0x0B));
+    let form_feed = vceqq_u8(input, vdupq_n_u8(0x0C));
     let tab = vceqq_u8(input, vdupq_n_u8(0x09));
-    let result = vorrq_u8(result, tab);
+    let result = vorrq_u8(result, vorrq_u8(form_feed, vorrq_u8(vertical_tab, tab)));
 
     // Disallow del
     let del = vceqq_u8(input, vdupq_n_u8(0x7F));
