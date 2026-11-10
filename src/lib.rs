@@ -1198,16 +1198,17 @@ fn parse_headers_iter_uninit<'a>(
             };
 
             // trim trailing whitespace in the header
-            let header_value = if let Some(last_visible) = value_slice
-                .iter()
-                .rposition(|b| *b != b' ' && *b != b'\t' && *b != b'\r' && *b != b'\n')
-            {
-                // There is at least one non-whitespace character.
-                &value_slice[0..last_visible+1]
-            } else {
-                // There is no non-whitespace character. This can only happen when value_slice is
-                // empty.
-                value_slice
+            let mut trimmed = value_slice;
+            let header_value = loop {
+                match trimmed.split_last() {
+                    Some((&last, rest)) if matches!(last, b' ' | b'\t' | b'\r' | b'\n') => {
+                        trimmed = rest;
+                    }
+                    Some(_) => break trimmed,
+                    // There is no non-whitespace character. This can only happen when value_slice
+                    // is empty.
+                    None => break value_slice,
+                }
             };
 
             *uninit_header = MaybeUninit::new(Header {
